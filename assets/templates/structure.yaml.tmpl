@@ -1,3 +1,4 @@
+# pce init 生成的契约示例。每一行机器都要读，别写给人看的解释——解释放 navigation.md。
 version: 1
 
 zones:
@@ -7,22 +8,18 @@ zones:
   src:
     what: 程序源码
 
+# 根目录只放“必须在根才能工作”的文件；init 会把根上已有文件问你一遍再写进来。
 root:
   allow:
     - README.md
-    - AGENTS.md
-    - structure.yaml
-    - navigation.md
-    - .gitignore
 
 naming:
-  default: snake
+  default: ""          # snake / kebab / pascal / camel；空字符串 = 不查命名
 
 archive:
-  path: archive/
+  path: "archive/"     # 没有归档区就写 ""
 
 ignore:
   - .git/
-  - .venv/
   - __pycache__/
   - .DS_Store
