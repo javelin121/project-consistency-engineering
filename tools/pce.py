@@ -1666,6 +1666,7 @@ def contract_add_zone(root, name, what):
 # ---------------------------------------------------------------- 命令：map
 
 def cmd_map(root, args):
+    """两阶段：先把每一层算完，全部成功才落盘。任何一层卡住，整个命令什么都不写。"""
     apply_now = "--apply" in args or interactive()
     try:
         contract = load_contract(root)
@@ -1675,49 +1676,34 @@ def cmd_map(root, args):
     scan = Scan(root, contract)
     layers = ["."] + [d for d in scan.dirs
                       if not scan.in_archive(d) and not scan.in_tool(d)]
-    changed_layers = 0
+    writes = []      # (navp, new_text, created)
     blocked = False
     for d in layers:
-        if scan.in_archive(d):
-            continue
         subs = scan.direct_subdirs(d)
         if not subs:
             continue
         navp = _nav_path(scan, d)
         text = scan.texts.get(navp)
         base = "" if d == "." else d + "/"
-        if text is None and not interactive():
-            emit("会新建 %s（缺“这一层是干什么的”，非交互不动）" % navp)
-            blocked = True
-            continue
+        created = False
         if text is None:
-            zone_name = None if d != "." else None
-            default_first = ""
-            if d == ".":
-                default_first = ""
-            elif d in contract.zones:
-                default_first = contract.zones[d]["what"]
+            if not interactive():
+                emit("会新建 %s（缺“这一层是干什么的”，非交互不动）" % navp)
+                blocked = True
+                continue
+            default_first = contract.zones.get(d, {}).get("what", "") if d != "." else ""
             first = ask("%s 这一层是干什么的？" % (base or "仓库根"), default_first) or ""
-            if not first.strip() and interactive():
+            if not first.strip():
                 first = ask("这一层到底放什么？再想一句，短点也行") or ""
             if not first.strip():
                 first = "（待补）"
-            if apply_now:
-                content = "%s\n\n%s\n| 子目录 | 负责什么 | 入口 | 最后更新 |\n|---|---|---|---|\n%s\n" % (
-                    first or "（待补）", MAP_BEGIN, MAP_END)
-                with open(os.path.join(root, navp), "w", encoding="utf-8") as f:
-                    f.write(content)
-                emit("新建 %s" % navp)
-            else:
-                emit("会新建 %s（这一层没有导航）" % navp)
-            text = read_text(os.path.join(root, navp)) if apply_now else ""
-        if not text:
-            blocked = True
-            continue
+            text = "%s\n\n%s\n| 子目录 | 负责什么 | 入口 | 最后更新 |\n|---|---|---|---|\n%s\n" % (
+                first, MAP_BEGIN, MAP_END)
+            created = True
         _, rows, has_block = parse_nav(text)
         byname = dict((r["name"].rstrip("/"), r) for r in rows)
         new_rows = []
-        changed = False
+        changed = created
         missing = []
         for sub in subs:
             row = byname.pop(sub, None)
@@ -1736,8 +1722,7 @@ def cmd_map(root, args):
                     changed = True
             new_rows.append(row)
         if missing:
-            emit("%s 缺“负责什么”：%s（非交互，停在这里，什么都没写）"
-                 % (navp, "、".join(missing)))
+            emit("%s 缺“负责什么”：%s（非交互，停在这里）" % (navp, "、".join(missing)))
             blocked = True
             continue
         for stale in byname.values():
@@ -1749,17 +1734,25 @@ def cmd_map(root, args):
         if not has_block:
             changed = True
         if changed:
-            changed_layers += 1
-            if apply_now:
-                new_text = nav_replace_block(text, new_rows)
-                with open(os.path.join(root, navp), "w", encoding="utf-8") as f:
-                    f.write(new_text)
-                emit("写了 %s" % navp)
-            else:
-                emit("会改写 %s" % navp)
-    if not changed_layers and not blocked:
-        pass
-    return EXIT_FAIL if blocked else EXIT_OK
+            writes.append((navp, nav_replace_block(text, new_rows), created))
+    if blocked:
+        if writes:
+            emit("有层没算完，以下这些层这次也不改：%s" % "、".join(w[0] for w in writes))
+        else:
+            emit("有层没算完，这次什么都没写")
+        return EXIT_FAIL
+    for navp, new_text, created in writes:
+        if apply_now:
+            path = os.path.join(root, navp)
+            parent = os.path.dirname(path)
+            if parent and not os.path.isdir(parent):
+                os.makedirs(parent, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new_text)
+            emit("新建 %s" % navp if created else "写了 %s" % navp)
+        else:
+            emit("会新建 %s" % navp if created else "会改写 %s" % navp)
+    return EXIT_OK
 
 
 # ---------------------------------------------------------------- 命令：new
