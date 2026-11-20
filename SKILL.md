@@ -25,7 +25,9 @@ description: 让 agent 在仓库里干活时，文件始终放在该放的地方
 5. **落盘**：用 `python tools/pce.py new ...` 建，别直接用编辑器写。
 6. **收尾**：`pce map` 补导航行，`pce check` 复查；有 error 就回到第 2 步。
 
-## 四条硬规则
+## 四条纪律
+
+（纪律是“你怎么干活”，底线是“仓库必须满足什么”——底线见 `references/philosophy.md`。）
 
 1. 不确认不写盘。只读命令（`check`、`audit`、`explain`）除外。
 2. 缺信息就问，别猜。目录“负责什么”必须由人给。
