@@ -1422,9 +1422,14 @@ def cmd_init(root, args):
     same_file = os.path.exists(dst) and os.path.samefile(src, dst)
     if not same_file:
         if os.path.exists(dst):
-            emit("tools/pce.py 已存在且和这份不同，不覆盖（本地改过；要更新跑 `pce upgrade`）")
-            if not os.path.isfile(sha_path):
-                emit("  没有 %s，这次也不补：补了就会把本地改动记成官方版" % SHA)
+            if sha256_file(dst) == sha256_file(src):
+                if not os.path.isfile(sha_path):
+                    with open(sha_path, "w", encoding="utf-8") as f:
+                        f.write(sha256_file(dst) + "\n")
+            else:
+                emit("tools/pce.py 已存在且和这份不同，不覆盖（本地改过；要更新跑 `pce upgrade`）")
+                if not os.path.isfile(sha_path):
+                    emit("  没有 %s，这次也不补：补了就会把本地改动记成官方版" % SHA)
         else:
             shutil.copyfile(src, dst)
             with open(sha_path, "w", encoding="utf-8") as f:
