@@ -18,8 +18,8 @@
 
 ## 改这个包时怎么干活
 
-1. 先读 `../docs/00-brief.md`（工作区根，不随包分发）：规则为什么是现在这样。
-2. 改规则要三处同步：先 `../docs/00-brief.md`，再 `references/`，最后 `tools/pce.py` 的实现。只改一处就是新的一处不一致。
+1. 先读 `references/philosophy.md`：为什么是这套规则、五条底线各防什么。
+2. 改规则要三处同步：`references/`（说给人看）、`assets/templates/`（给新仓库看）、`tools/pce.py`（机器执行）。只改一处就是新的一处不一致。
 3. 改模板：`assets/templates/` 与 `pce.py` 里的 `*_TPL` 必须一起改。
 4. 改完跑 `python tools/pce.py check`，零 error 才算完。
 
@@ -31,4 +31,4 @@
 ## 去哪看
 
 - 规则细节：`references/`
-- 设计取舍：`../docs/00-brief.md`、`../docs/02-design.md`
+- 设计取舍：`references/philosophy.md`、`references/contract.md`

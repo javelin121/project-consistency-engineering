@@ -435,11 +435,22 @@ class Scan(object):
         self.texts = {}
         self._walk()
 
+    def _is_tool_dir(self, name):
+        """根下以 . 开头的目录是工具目录（.github/、.vscode/），整棵子树不参与结构检查。
+
+        它们在根上是被放行的既有事实，但不该被要求配 navigation.md，也不该被当作分区。
+        认了分区名就按分区算，不再当工具目录。
+        """
+        if not name.startswith("."):
+            return False
+        return name not in self.contract.zones
+
     def _walk(self):
         archive = self.contract.archive_dir()
         for dirpath, dirnames, filenames in os.walk(self.root):
             dirnames[:] = sorted(d for d in dirnames
-                                 if d != ".git" and not self.contract.is_ignored(d))
+                                 if d != ".git" and not self.contract.is_ignored(d)
+                                 and not self._is_tool_dir(d))
             rel = to_posix(os.path.relpath(dirpath, self.root))
             if rel != ".":
                 self.dirs.append(rel)
