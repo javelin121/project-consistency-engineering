@@ -449,8 +449,7 @@ class Scan(object):
         archive = self.contract.archive_dir()
         for dirpath, dirnames, filenames in os.walk(self.root):
             dirnames[:] = sorted(d for d in dirnames
-                                 if d != ".git" and not self.contract.is_ignored(d)
-                                 and not self._is_tool_dir(d))
+                                 if d != ".git" and not self.contract.is_ignored(d))
             rel = to_posix(os.path.relpath(dirpath, self.root))
             if rel != ".":
                 self.dirs.append(rel)
@@ -472,6 +471,16 @@ class Scan(object):
                     self.texts[rp] = read_text(full)
         self.file_set = set(self.files)
         self.dir_set = set(self.dirs)
+        self.tool_dirs = set(d for d in self.dirs
+                             if d.startswith(".") and "/" not in d
+                             and d not in self.contract.zones)
+
+    def in_tool(self, relpath):
+        """点开头的目录（.github/、.vscode/，任何层级）及其子树：不参与结构检查。"""
+        for seg in relpath.split("/"):
+            if seg.startswith(".") and seg not in self.contract.zones:
+                return True
+        return False
 
     def in_archive(self, relpath):
         a = self.contract.archive_dir()
@@ -489,6 +498,8 @@ class Scan(object):
                 continue
             rest = d[len(prefix):]
             if "/" not in rest:
+                if rest.startswith(".") and d not in self.contract.zones:
+                    continue
                 out.append(rest)
         return sorted(out)
 
@@ -567,7 +578,8 @@ def _has_subdirs(scan, reldir):
 
 
 def rule_s2(scan, out):
-    layers = ["."] + [d for d in scan.dirs if not scan.in_archive(d)]
+    layers = ["."] + [d for d in scan.dirs
+                      if not scan.in_archive(d) and not scan.in_tool(d)]
     for d in layers:
         if scan.in_archive(d):
             continue
@@ -624,7 +636,8 @@ def parse_nav(text):
 
 
 def rule_s3(scan, out):
-    layers = ["."] + [d for d in scan.dirs if not scan.in_archive(d)]
+    layers = ["."] + [d for d in scan.dirs
+                      if not scan.in_archive(d) and not scan.in_tool(d)]
     for d in layers:
         if scan.in_archive(d):
             continue
@@ -653,7 +666,8 @@ def rule_s3(scan, out):
 
 
 def rule_s4(scan, out):
-    layers = ["."] + [d for d in scan.dirs if not scan.in_archive(d)]
+    layers = ["."] + [d for d in scan.dirs
+                      if not scan.in_archive(d) and not scan.in_tool(d)]
     for d in layers:
         if scan.in_archive(d):
             continue
@@ -717,7 +731,7 @@ def _style_ok(style, name):
 
 def rule_s5(scan, out):
     for rel in sorted(scan.files):
-        if scan.in_archive(rel) or "/" not in rel:
+        if scan.in_archive(rel) or "/" not in rel or scan.in_tool(rel):
             continue
         if rel.split("/")[-1].split(".", 1)[0].isupper():
             continue
@@ -729,7 +743,7 @@ def rule_s5(scan, out):
             out.append(Finding("S5", rel, "warn",
                                "名字不符合 %s 风格（约定来自 structure.yaml 的 naming）" % style))
     for rel in sorted(scan.dirs):
-        if scan.in_archive(rel):
+        if scan.in_archive(rel) or scan.in_tool(rel):
             continue
         if rel in scan.contract.zones:
             style = scan.contract.naming_zones.get(rel, scan.contract.naming_default)
@@ -838,7 +852,8 @@ def rule_s7(scan, out):
 
 
 def rule_s8(scan, out):
-    layers = ["."] + [d for d in scan.dirs if not scan.in_archive(d)]
+    layers = ["."] + [d for d in scan.dirs
+                      if not scan.in_archive(d) and not scan.in_tool(d)]
     for d in layers:
         if scan.in_archive(d):
             continue
@@ -873,7 +888,8 @@ def rule_s10(scan, out):
         if is_vague(body["what"]):
             out.append(Finding("S10", name, "warn",
                                "分区的 what 等于没说：%r" % body["what"]))
-    layers = ["."] + [d for d in scan.dirs if not scan.in_archive(d)]
+    layers = ["."] + [d for d in scan.dirs
+                      if not scan.in_archive(d) and not scan.in_tool(d)]
     for d in layers:
         if scan.in_archive(d):
             continue
@@ -1615,7 +1631,8 @@ def cmd_map(root, args):
         emit("契约有问题：%s" % exc)
         return EXIT_FAIL
     scan = Scan(root, contract)
-    layers = ["."] + [d for d in scan.dirs if not scan.in_archive(d)]
+    layers = ["."] + [d for d in scan.dirs
+                      if not scan.in_archive(d) and not scan.in_tool(d)]
     changed_layers = 0
     blocked = False
     for d in layers:
