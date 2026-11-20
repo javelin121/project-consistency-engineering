@@ -1021,7 +1021,7 @@ def cmd_check(root, args):
     errors = [f for f in items if f.level == "error"]
     if errors:
         return EXIT_FAIL
-    if strict and any(f.level == "warn" for f in items):
+    if strict and any(f.level in ("warn", "info") for f in items):
         return EXIT_FAIL
     return EXIT_OK
 
