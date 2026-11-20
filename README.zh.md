@@ -1,5 +1,11 @@
 [English](README.md) | **简体中文**
 
+<p align="center">
+  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-24292f?style=flat">
+  <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-24292f?style=flat">
+  <img alt="dependencies none" src="https://img.shields.io/badge/dependencies-none-2ea44f?style=flat">
+</p>
+
 # 项目一致性工程（Project Consistency Engineering）
 
 给 agent 用的一个 skill：让仓库里的每个文件都有该在的位置，让每个文件夹都有一句话说清自己管什么，并且让导航和文件在同一次改动里一起更新。

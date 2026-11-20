@@ -1,5 +1,11 @@
 **English** | [简体中文](README.zh.md)
 
+<p align="center">
+  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-24292f?style=flat">
+  <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-24292f?style=flat">
+  <img alt="dependencies none" src="https://img.shields.io/badge/dependencies-none-2ea44f?style=flat">
+</p>
+
 # Project Consistency Engineering
 
 An agent skill that keeps a repository's structure honest: every file has a home, every folder has a one-line job, and the map is updated in the same change that moves the furniture.
