@@ -1374,6 +1374,43 @@ def _contract_body(zones, allow, archive_path):
     return "\n".join(body)
 
 
+def _register_preexisting_archive(root, archive):
+    """接管一个已经有文件的归档区（如老仓库的 old/）：把存量文件登记进 ARCHIVE.md。
+
+    否则 S11 会对每个存量文件报“没登记”，一装完就是一片 warn。
+    """
+    adir = os.path.join(root, archive)
+    if not os.path.isdir(adir):
+        return
+    log = os.path.join(adir, ARCHIVE_LOG)
+    registered = set()
+    if os.path.exists(log):
+        for line in read_text(log).splitlines():
+            if not line.strip().startswith("|"):
+                continue
+            cells = [x.strip() for x in line.strip().strip("|").split("|")]
+            if cells and cells[0] not in ("原路径", "") and set(cells[0]) - set("-: "):
+                registered.add(cells[0].strip("`"))
+    rows = []
+    for dirpath, dirnames, filenames in os.walk(adir):
+        dirnames[:] = sorted(d for d in dirnames if d != ".git")
+        for n in sorted(filenames):
+            rel = to_posix(os.path.relpath(os.path.join(dirpath, n), root))
+            if rel.endswith("/" + ARCHIVE_LOG) or rel == ARCHIVE_LOG or rel in registered:
+                continue
+            rows.append(rel)
+    if not rows:
+        return
+    if not os.path.exists(log):
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("# 归档记录\n\n| 原路径 | 归档时间 | 原因 | 谁提的 |\n|---|---|---|---|\n")
+    date = datetime.date.today().isoformat()
+    with open(log, "a", encoding="utf-8") as f:
+        for rel in rows:
+            f.write("| %s | %s | %s | %s |\n" % (rel, date, "接管时已在归档区", "init"))
+    emit("归档区里原有 %d 个文件，已登记到 %s" % (len(rows), archive + "/" + ARCHIVE_LOG))
+
+
 def cmd_init(root, args):
     targets = []
     contract_path = os.path.join(root, CONTRACT)
@@ -1481,6 +1518,8 @@ def cmd_init(root, args):
         emit("写了 %s" % rel)
     try:
         c = load_contract(root)
+        if c.archive_dir():
+            _register_preexisting_archive(root, c.archive_dir())
         for zname in list(c.zones) + ([c.archive_dir()] if c.archive_dir() else []):
             zdir = os.path.join(root, zname)
             if not os.path.isdir(zdir):
