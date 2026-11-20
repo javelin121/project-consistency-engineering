@@ -8,6 +8,7 @@
 import fnmatch
 import hashlib
 import datetime
+import difflib
 import json
 import os
 import re
@@ -483,7 +484,7 @@ class Scan(object):
 
 BASELINE_OF = {
     "S1": "I1", "S2": "I2", "S3": "I2", "S4": "I2", "S5": "I4", "S6": "I4",
-    "S7": "I4", "S8": "I2", "S9": "I4", "S10": "I2", "S11": "I4", "S12": "I5",
+    "S7": "I4", "S8": "I2", "S9": "I1", "S10": "I2", "S11": "I4", "S12": "I5",
 }
 
 
@@ -579,7 +580,8 @@ def parse_nav(text):
     rows = []
     has_block = MAP_BEGIN in text
     in_block = not has_block  # 没有标记段时，整篇都当表格读（兼容手写的旧表）
-    for raw in text.splitlines():
+    lines = text.splitlines()
+    for i, raw in enumerate(lines):
         line = raw.strip()
         if line == MAP_BEGIN:
             in_block = True
@@ -593,16 +595,19 @@ def parse_nav(text):
             continue
         if not line.startswith("|"):
             continue
+        if set(line) <= set("|:- "):
+            continue
+        nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        if nxt.startswith("|") and set(nxt) <= set("|:- "):
+            continue  # 表头行（下一行是分隔线），不是数据
         cells = [c.strip() for c in line.strip("|").split("|")]
         if len(cells) < 2:
-            continue
-        if cells[0] in ("子目录", "---") or set(cells[0]) <= set("-: "):
             continue
         rows.append({
             "name": cells[0],
             "what": cells[1] if len(cells) > 1 else "",
-            "entry": cells[2] if len(cells) > 2 else "",
-            "updated": cells[3] if len(cells) > 3 else "",
+            "entry": cells[2] if (has_block and len(cells) > 2) else "",
+            "updated": cells[3] if (has_block and len(cells) > 3) else "",
         })
     return first, rows, has_block
 
@@ -758,6 +763,9 @@ def rule_s6(scan, out):
             if resolved is None:
                 continue
             if resolved is False or resolved not in scan.file_set and resolved not in scan.dir_set:
+                arch = scan.contract.archive_dir()
+                if arch and isinstance(resolved, str) and (arch + "/" + strip_dot(resolved)) in scan.file_set:
+                    continue
                 out.append(Finding("S6", rel, "error",
                                    "链接指向的 %s 不存在" % target))
         if rel.endswith(".md"):
@@ -1013,7 +1021,7 @@ def cmd_check(root, args):
     errors = [f for f in items if f.level == "error"]
     if errors:
         return EXIT_FAIL
-    if strict and items:
+    if strict and any(f.level == "warn" for f in items):
         return EXIT_FAIL
     return EXIT_OK
 
@@ -1048,6 +1056,10 @@ def cmd_audit(root, args):
     gitdir = os.path.join(root, ".git")
     data["git_size"] = _dir_size(gitdir) if os.path.isdir(gitdir) else 0
     data["big_objects"] = _big_objects(root)
+    try:
+        data["contract"] = load_contract(root)
+    except ContractError:
+        data["contract"] = None
     data["root_entries"] = sorted(n for n in os.listdir(root) if n != ".git")
     data["layers"] = sorted(set(d.split("/")[0] for d in data["root_entries"]
                                if os.path.isdir(os.path.join(root, d))))
@@ -1064,8 +1076,12 @@ def cmd_audit(root, args):
     emit("  历史大文件    %s" % ("、".join(g[1] for g in data["big_objects"]) or "（取不到或没有）"))
     emit("")
     emit("根目录")
+    allow = data["contract"].root_allow if data.get("contract") else []
     for name in data["root_entries"]:
-        emit("  " + name)
+        mark = ""
+        if allow and os.path.isfile(os.path.join(root, name)) and not match_any(name, allow):
+            mark = "   ← 不在白名单里"
+        emit("  " + name + mark)
     emit("")
     emit("层级现状")
     for name in data["layers"]:
@@ -1081,6 +1097,9 @@ def cmd_audit(root, args):
     emit("")
     emit("入口文件")
     emit("  %s  %d 行" % (AGENTS, data["agents_lines"]))
+    skill = os.path.join(root, "SKILL.md")
+    if os.path.isfile(skill):
+        emit("  SKILL.md  %d 行" % len(open(skill, encoding="utf-8", errors="replace").read().splitlines()))
     if contract is None:
         emit("")
         emit("（没有可用的 structure.yaml，本次只报事实，不判违规）")
@@ -1314,6 +1333,20 @@ def apply_agents(root, targets):
     emit("替换了 %s 的 PCE 段（%d 行有变化）" % (AGENTS, len(changed)))
 
 
+def _contract_body(zones, allow, archive_path):
+    """zones: [(名字, what)]；allow: 根白名单；archive_path: 空字符串表示没有归档区。"""
+    body = ["version: 1", "", "zones:"]
+    for name, what in zones:
+        body += ["  %s:" % name, "    what: %s" % what, ""]
+    body += ["root:", "  allow:"]
+    body += ["    - %s" % e for e in allow]
+    body += ["", "naming:", '  default: ""', "",
+             "archive:", '  path: "%s"' % archive_path, "", "ignore:"]
+    body += ["  - %s" % e for e in DEFAULT_IGNORE]
+    body.append("")
+    return "\n".join(body)
+
+
 def cmd_init(root, args):
     targets = []
     contract_path = os.path.join(root, CONTRACT)
@@ -1347,17 +1380,35 @@ def cmd_init(root, args):
                     if ask("根目录的 %s 要放进白名单吗？(y/n)" % n, "y").lower().startswith("y")]
             extras = kept
         archive_path = (found_old if found_old and want_archive else ("archive" if want_archive else ""))
-        body = ["version: 1", "", "zones:",
-                "  tools:", "    what: %s" % tools_what, "",
-                "  %s:" % zone_name, "    what: %s" % zone_what, "",
-                "root:", "  allow:"]
-        body.extend("    - %s" % e for e in extras)
-        body += ["", "naming:", '  default: ""', "",
-                 "archive:", '  path: "%s"' % archive_path, "",
-                 "ignore:", "  - .git/", "  - __pycache__/", "  - .DS_Store", ""]
-        targets.append((CONTRACT, "\n".join(body)))
+        zones = [("tools", tools_what), (zone_name, zone_what)]
+        targets.append((CONTRACT, _contract_body(zones, extras, archive_path)))
     else:
-        emit("%s 已存在，跳过（不会覆盖）" % CONTRACT)
+        try:
+            old = load_contract(root)
+        except ContractError as e:
+            emit("%s 读不懂：%s" % (CONTRACT, e))
+            emit("先把它修好，或者备份走再跑一次 init。")
+            return EXIT_FAIL
+        action = "k"
+        if interactive():
+            action = ask("%s 已存在，怎么办？(k) 保留原样 / (b) 备份到临时目录后重写 / (d) 只看差异"
+                         % CONTRACT, "k").strip().lower()[:1] or "k"
+        if action == "d":
+            emit("%s 现在是这样：" % CONTRACT)
+            for line in old.raw.splitlines():
+                emit("  " + line)
+            emit("要改就自己改；或者选 (b) 备份后按现在的目录重写。")
+            return EXIT_OK
+        if action == "b":
+            tmpdir = tempfile.mkdtemp(prefix="pce-init-")
+            backup = os.path.join(tmpdir, CONTRACT)
+            shutil.copyfile(contract_path, backup)
+            emit("原契约备份到 %s" % backup)
+            zones = [(n, z.get("what", "")) for n, z in old.zones.items()]
+            allow = list(old.root_allow)
+            targets.append((CONTRACT, _contract_body(zones, allow, old.archive_dir())))
+        else:
+            emit("%s 已存在，保留原样（要改就跑 init 选 (b)，或自己改）" % CONTRACT)
 
     apply_agents(root, targets)
     if not os.path.isfile(os.path.join(root, "README.md")):
@@ -1372,9 +1423,10 @@ def cmd_init(root, args):
     if not same_file:
         if os.path.exists(dst):
             emit("tools/pce.py 已存在且和这份不同，不覆盖（本地改过；要更新跑 `pce upgrade`）")
+            if not os.path.isfile(sha_path):
+                emit("  没有 %s，这次也不补：补了就会把本地改动记成官方版" % SHA)
         else:
             shutil.copyfile(src, dst)
-        if not os.path.isfile(sha_path) or sha256_file(dst) == sha256_file(src):
             with open(sha_path, "w", encoding="utf-8") as f:
                 f.write(sha256_file(dst) + "\n")
     if not os.path.isfile(os.path.join(root, NAV)):
@@ -1422,9 +1474,11 @@ def _wrap_existing_table(text):
     """没有标记但有表格：把第一张表整段包进标记，返回 (text, 是否包了)。"""
     lines = text.splitlines()
     start = None
-    for i, line in enumerate(lines):
-        if line.strip().startswith("| 子目录") or (line.strip().startswith("|---") and start is not None):
-            start = i if line.strip().startswith("| 子目录") else start
+    for i in range(len(lines) - 1):
+        head = lines[i].strip()
+        sep = lines[i + 1].strip()
+        if head.startswith("|") and sep.startswith("|") and set(sep) <= set("|-: "):
+            start = i
             break
     if start is None:
         return text, False
@@ -1438,12 +1492,30 @@ def _wrap_existing_table(text):
     return "\n".join(new), True
 
 
+def _table_columns(text):
+    """旧表有几列、多出来的列有没有内容；没有表就是 (0, False)。"""
+    cols = 0
+    extra = False
+    for line in text.splitlines():
+        t = line.strip()
+        if not t.startswith("|") or set(t) <= set("|:- "):
+            continue
+        cells = [c.strip() for c in t.strip("|").split("|")]
+        cols = max(cols, len(cells))
+        if any(cells[2:]):
+            extra = True
+    return cols, extra
+
+
 def nav_replace_block(text, rows):
     begin = text.find(MAP_BEGIN)
     end = text.find(MAP_END)
     if begin < 0 or end < 0:
+        old_cols, extra = _table_columns(text)
         text, wrapped = _wrap_existing_table(text)
         if wrapped:
+            if extra:
+                emit("  旧表有 %d 列，这次只保留前两列（子目录、负责什么）；其余列的内容没搬过来，原样在 git 历史里，要看用 git show" % old_cols)
             begin = text.find(MAP_BEGIN)
             end = text.find(MAP_END)
             return text[:begin] + MAP_BEGIN + "\n" + nav_render(rows) + "\n" + MAP_END + text[end + len(MAP_END):]
@@ -1621,6 +1693,40 @@ def _zone_of(rel):
     return rel.split("/")[0] if "/" in rel else None
 
 
+def _name_similar(a, b):
+    a, b = a.lower(), b.lower()
+    if a == b:
+        return True
+    if a.startswith(b) or b.startswith(a):
+        return True
+    if a.rstrip("s") == b.rstrip("s"):
+        return True
+    if a.replace("-", "").replace("_", "") == b.replace("-", "").replace("_", ""):
+        return True
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.8
+
+
+def _lookalike_dirs(root, rel, what):
+    """兄弟目录里，名字像或职责像的。返回 [(名字, 为什么像)]。"""
+    parent = os.path.dirname(rel)
+    base = os.path.join(root, parent) if parent else root
+    name = os.path.basename(rel)
+    out = []
+    try:
+        entries = sorted(os.listdir(base))
+    except OSError:
+        return out
+    for e in entries:
+        if not os.path.isdir(os.path.join(base, e)) or e == name:
+            continue
+        if _name_similar(name, e):
+            out.append((e, "名字很像"))
+            continue
+        if what and jaccard(what, e) >= 0.6:
+            out.append((e, "说明用词重叠"))
+    return out
+
+
 def cmd_new(root, args):
     paths = []
     as_dir = "--dir" in args
@@ -1685,6 +1791,19 @@ def cmd_new(root, args):
         elif zone is not None and zone not in contract.zones and zone != contract.archive_dir():
             bad.append("%s：%s 不是已登记的分区；先 pce new %s/ 建分区，或换个位置" % (raw, zone, zone))
             continue
+        if want_dir:
+            looks = _lookalike_dirs(root, rel, what_arg or "")
+            if looks:
+                hint = "、".join("%s（%s）" % (n, why) for n, why in looks[:3])
+                if not interactive():
+                    bad.append("%s：和已有目录 %s 像，先想清楚是不是重复（非交互，停下）" % (raw, hint))
+                    continue
+                if zone is None and rel not in contract.zones:
+                    bad.append("%s：要新建分区，又和已有目录 %s 像；分区必须是人明确要的，先确认不重复" % (raw, hint))
+                    continue
+                choice = ask("%s 和已有目录 %s 像：(a) 还是建 / (b) 换个名字 / (x) 不建" % (raw, hint), "x")
+                if not choice.strip().lower().startswith("a"):
+                    continue
         if want_dir and zone is None and rel not in contract.zones:
             note = "新分区（要写进 structure.yaml）"
         if not want_dir:
@@ -1736,6 +1855,18 @@ def cmd_new(root, args):
         if parent == "." and name not in contract.zones:
             if contract_add_zone(root, name, what):
                 emit("  在 structure.yaml 的 zones 里登记了 %s" % name)
+    try:
+        left = run_rules(Scan(root, load_contract(root)))
+    except ContractError:
+        left = []
+    bad = [f for f in left if f.level == "error"]
+    emit("")
+    if bad:
+        emit("建完了，但 check 还有 %d 条 error：" % len(bad))
+        for f in sort_findings(bad)[:10]:
+            emit("  " + f.line())
+        return EXIT_FAIL
+    emit("建完了，check 没有 error。")
     return EXIT_OK
 
 
@@ -1795,16 +1926,25 @@ def cmd_archive(root, args):
             if not interactive():
                 emit("%s 目标已存在：%s（非交互，停下）" % (rel, dest))
                 return EXIT_FAIL
-            choice = ask("目标 %s 已存在：(r) 换个名字 / (s) 跳过 / (x) 取消" % dest, "r")
-            if choice.lower().startswith("x"):
+            choice = ask("目标 %s 已存在：(t) 加日期后缀 / (n) 自己取名 / (s) 跳过 / (x) 取消" % dest, "t")
+            c = choice.strip().lower()[:1]
+            if c == "x":
                 return EXIT_FAIL
-            if choice.lower().startswith("s"):
+            if c == "s":
                 continue
-            k = 2
-            while os.path.exists(full_dest):
-                dest = "%s/%s-%d" % (archive, rel, k)
+            if c == "n":
+                new_name = ask("新名字（放在 %s/ 下面，只写这一段）" % archive, os.path.basename(rel))
+                dest = archive + "/" + strip_dot(new_name)
                 full_dest = os.path.join(root, dest)
-                k += 1
+                if os.path.exists(full_dest):
+                    emit("%s 也存在，这次先跳过 %s" % (dest, rel))
+                    continue
+            else:
+                dest = "%s/%s-%s" % (archive, rel, datetime.date.today().isoformat())
+                full_dest = os.path.join(root, dest)
+                if os.path.exists(full_dest):
+                    emit("%s 也存在，这次先跳过 %s" % (dest, rel))
+                    continue
         moves.append((rel, dest, rel in scan.dir_set))
     emit("计划：")
     for rel, dest, _ in moves:
@@ -1871,12 +2011,12 @@ def cmd_archive(root, args):
             emit("  " + f.line())
     else:
         emit("归档完成，check 没有 error。")
-    return EXIT_OK
     fresh = Scan(root, contract)
     if ensure_nav_row(fresh, ".", contract.archive_dir(), "不再使用、但想留个凭据的文件"):
         emit("在根导航里加了一行 %s" % contract.archive_dir())
-    emit("")
-    emit("还剩 %d 处引用要改；改完跑 `pce check`" % len(refs))
+    if refs:
+        emit("")
+        emit("还剩 %d 处引用要改；改完跑 `pce check`" % len(refs))
     return EXIT_OK
 
 
