@@ -2173,7 +2173,7 @@ def main(argv):
         root = find_root()
         if root is None:
             emit("这里不是 PCE 仓库（找不到 %s）。先进入仓库根，或先跑 `pce init`。" % CONTRACT)
-            return EXIT_USAGE
+            return EXIT_FAIL
     table = {
         "init": cmd_init, "audit": cmd_audit, "check": cmd_check, "map": cmd_map,
         "new": cmd_new, "archive": cmd_archive, "explain": cmd_explain,
