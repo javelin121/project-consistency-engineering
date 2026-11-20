@@ -1332,7 +1332,7 @@ def _write_if_absent(path, content, mode="w"):
     return True
 
 
-def apply_agents(root, targets):
+def apply_agents(root, targets, reset=False):
     """AGENTS.md 三态：没有就写整份；有标记只换段内；有文件没标记就不碰。"""
     path = os.path.join(root, AGENTS)
     if not os.path.isfile(path):
@@ -1350,6 +1350,9 @@ def apply_agents(root, targets):
     replaced = replace_marked(current, AGENTS_TPL.rstrip("\n"))
     if replaced == current:
         emit("%s 的 PCE 段已经是最新的" % AGENTS)
+        return
+    if not reset:
+        emit("%s 的 PCE 段和当前模板不一样，保留原样（要换成新版：`pce init --reset-agents`）" % AGENTS)
         return
     before = current.splitlines()
     after = replaced.splitlines()
@@ -1474,7 +1477,7 @@ def cmd_init(root, args):
         else:
             emit("%s 已存在，保留原样（要改就跑 init 选 (b)，或自己改）" % CONTRACT)
 
-    apply_agents(root, targets)
+    apply_agents(root, targets, reset="--reset-agents" in args)
     if not os.path.isfile(os.path.join(root, "README.md")):
         targets.append(("README.md",
                         "# %s\n\n一句话说明这个项目是做什么的。\n\n## 怎么跑\n\n（写清楚跑起来的命令）\n"
@@ -2233,7 +2236,12 @@ def main(argv):
         return EXIT_OK
     cmd, rest = argv[0], argv[1:]
     if cmd == "init":
-        root = find_root() or os.getcwd()
+        cwd = os.path.abspath(os.getcwd())
+        found = find_root()
+        if found and os.path.abspath(found) != cwd:
+            emit("这里在 %s 下面，不是仓库根。init 只在你要初始化的那个目录里跑。" % found)
+            return EXIT_USAGE
+        root = cwd
     elif cmd == "audit":
         root = find_root() or _git_root() or os.getcwd()
     else:
