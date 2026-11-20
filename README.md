@@ -1,4 +1,4 @@
-**English** | [简体中文](README.zh.md)
+**English** | [Chinese](README.zh.md)
 
 <p align="center">
   <img alt="MIT" src="assets/badges/license.svg" height="20">
@@ -61,11 +61,13 @@ python3 tools/pce.py audit
 
 ```console
 $ python3 tools/pce.py check
-README.md  I4  error  还按旧路径引用 src/legacy/old.py；它现在是 archive/src/legacy/old.py
-notes.txt  I1  error  根目录下多了个文件 notes.txt；要么挪进某个分区，要么在 root.allow 里加一行并说明理由
+README.md  I4  error  still points at the old path src/legacy/old.py; it now lives at archive/src/legacy/old.py
+notes.txt  I1  error  root-level file notes.txt is not in root.allow; move it into a zone, or allow it with a reason
 
 2 error, 0 warn
 ```
+
+*(Translated from the real output, which is Chinese-only.)*
 
 Each line is four things: location, the principle it breaks, the level, and what to do about it. `error` means the structure is broken (exit code 1). `warn` means it is worth a look; `--strict` turns those into failures too.
 
