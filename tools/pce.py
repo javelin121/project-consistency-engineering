@@ -1220,7 +1220,7 @@ def cmd_explain(root, args):
     refs = []
     pat = re.compile(r"(?<![\w/.-])" + re.escape(rel) + r"(?![\w/.-])")
     for other, text in scan.texts.items():
-        if other == rel:
+        if other == rel or other.endswith("tools/pce.py"):
             continue
         for n, line in enumerate(text.splitlines(), 1):
             if pat.search(line):
@@ -1671,7 +1671,7 @@ def cmd_new(root, args):
         emit("这批不能建：")
         for b in bad:
             emit("  " + b)
-        return EXIT_USAGE
+        return EXIT_FAIL
     emit("计划：")
     for rel, want_dir, note in plan:
         emit("  %s %s%s" % ("建目录" if want_dir else "建文件", rel, ("  — " + note) if note else ""))
