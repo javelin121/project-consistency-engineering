@@ -1550,7 +1550,11 @@ def cmd_map(root, args):
                 default_first = ""
             elif d in contract.zones:
                 default_first = contract.zones[d]["what"]
-            first = ask("%s 这一层是干什么的？" % (base or "仓库根"), default_first)
+            first = ask("%s 这一层是干什么的？" % (base or "仓库根"), default_first) or ""
+            if not first.strip() and interactive():
+                first = ask("这一层到底放什么？再想一句，短点也行") or ""
+            if not first.strip():
+                first = "（待补）"
             if apply_now:
                 content = "%s\n\n%s\n| 子目录 | 负责什么 | 入口 | 最后更新 |\n|---|---|---|---|\n%s\n" % (
                     first or "（待补）", MAP_BEGIN, MAP_END)
@@ -1618,8 +1622,23 @@ def _zone_of(rel):
 
 
 def cmd_new(root, args):
-    paths = [a for a in args if not a.startswith("-")]
+    paths = []
     as_dir = "--dir" in args
+    what_arg = ""
+    skip_next = False
+    for a in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "--what":
+            skip_next = True
+            continue
+        if not a.startswith("-"):
+            paths.append(a)
+    if "--what" in args:
+        k = args.index("--what")
+        if k + 1 < len(args):
+            what_arg = args[k + 1]
     if not paths:
         emit("用法：pce new <路径…> [--dir] [--apply]")
         return EXIT_USAGE
@@ -1636,6 +1655,12 @@ def cmd_new(root, args):
         rel = strip_dot(raw.replace(os.sep, "/").rstrip("/"))
         if not rel or rel.startswith("/") or ".." in rel.split("/"):
             bad.append("%s：必须是仓库内的相对路径" % raw)
+            continue
+        if want_dir and not what_arg and not interactive() and not os.path.isdir(os.path.join(root, rel)):
+            bad.append("%s：非交互建目录要给“负责什么”，加 --what \"说明\"" % raw)
+            continue
+        if rel in plan_names(plan):
+            bad.append("%s：同一个路径在计划里出现了两次" % raw)
             continue
         first = rel.split("/")[0]
         if contract.is_ignored(first):
@@ -1697,7 +1722,7 @@ def cmd_new(root, args):
         emit("建了目录 %s" % rel)
         parent = os.path.dirname(rel) or "."
         name = rel.split("/")[-1]
-        what = ask("「%s」负责什么？" % rel, "") or "待补"
+        what = what_arg or ask("「%s」负责什么？" % rel, "") or "待补"
         first = None
         if parent != ".":
             head = contract.zones.get(parent)
