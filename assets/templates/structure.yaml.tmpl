@@ -1,0 +1,28 @@
+version: 1
+
+zones:
+  tools:
+    what: 脚本与工具
+
+  src:
+    what: 程序源码
+
+root:
+  allow:
+    - README.md
+    - AGENTS.md
+    - structure.yaml
+    - navigation.md
+    - .gitignore
+
+naming:
+  default: snake
+
+archive:
+  path: archive/
+
+ignore:
+  - .git/
+  - .venv/
+  - __pycache__/
+  - .DS_Store

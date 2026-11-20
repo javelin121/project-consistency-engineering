@@ -1,0 +1,31 @@
+# 项目一致性工程：这个包自己的结构契约
+version: 1
+
+zones:
+  references:
+    what: 规则细节，agent 按需逐份加载
+  assets:
+    what: 初始化时复制到用户仓库的模板
+  tools:
+    what: 校验脚本 pce.py
+
+root:
+  allow:
+    - README.md
+    - AGENTS.md
+    - SKILL.md
+    - structure.yaml
+    - navigation.md
+    - .gitignore
+
+naming:
+  default: kebab
+
+archive:
+  path: ""
+
+ignore:
+  - .git/
+  - .venv/
+  - __pycache__/
+  - .DS_Store
