@@ -47,3 +47,5 @@ description: 让 agent 在仓库里干活时，文件始终放在该放的地方
 | 老仓库怎么迁移 | `references/migration.md` |
 
 命令与参数：`python tools/pce.py check`、`audit`、`map`、`new`、`archive`、`explain`、`init`、`upgrade`、`hook install|uninstall`。
+
+下文的 `pce` 都是 `python3 tools/pce.py` 的简写，在仓库根执行。
