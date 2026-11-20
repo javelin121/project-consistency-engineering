@@ -1,0 +1,122 @@
+[English](README.md) | **简体中文**
+
+# 项目一致性工程（Project Consistency Engineering）
+
+给 agent 用的一个 skill：让仓库里的每个文件都有该在的位置，让每个文件夹都有一句话说清自己管什么，并且让导航和文件在同一次改动里一起更新。
+
+## 问题
+
+跟 agent 一起长大的仓库，会烂在固定的四个地方：
+
+1. 文件随手丢在根上，谁也说不清它该不该在那儿；
+2. 新目录建了，但没人说得清它是干什么的；
+3. 文件挪了位置，指向它的文档和代码没跟着改；
+4. 每换一个 agent、每开一次会话，都得重新猜一遍结构。
+
+这些都不是代码质量问题，是**结构**问题。它的坏法还很阴：不像过期的 TODO 那样显眼，而是悄悄积累。
+
+## 靠什么守住
+
+三样东西，一层压一层：
+
+| 组成 | 是什么 | 谁读 |
+|---|---|---|
+| **契约** | `structure.yaml`——分区、根白名单、命名、归档、忽略 | 检查器 |
+| **导航** | 每个有子目录的目录一份 `navigation.md` | 你和 agent |
+| **检查** | `tools/pce.py`——12 条规则，一次扫描，给退出码 | 你和 CI |
+
+契约是唯一事实源；导航由它长出来，并且跟着改动一起更新；检查器是唯一有资格判断“这些还成不成立”的东西。
+
+## 安装
+
+```sh
+git clone <仓库地址> ~/.agents/skills/project-consistency-engineering
+```
+
+不同 CLI 读的目录可能不同（比如 `~/.claude/skills/`）。这只影响 skill 会不会被触发；它用到的东西都会复制进你的仓库，所以 `python3 tools/pce.py check` 在哪种情况下都能跑。
+
+## 三十秒上手
+
+```sh
+cd your-repo
+python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py init
+python3 tools/pce.py check
+```
+
+`init` 每一步都先问：通用分区叫什么、每个分区负责什么、要不要认领归档目录、根上那些散落文件要不要进白名单。它会把 `tools/pce.py` 复制进你的仓库——之后这个仓库不再依赖 skill 装没装。
+
+老仓库先只读体检，不动任何文件：
+
+```sh
+python3 tools/pce.py audit
+```
+
+## 长什么样
+
+```console
+$ python3 tools/pce.py check
+README.md  I4  error  还按旧路径引用 src/legacy/old.py；它现在是 archive/src/legacy/old.py
+notes.txt  I1  error  根目录下多了个文件 notes.txt；要么挪进某个分区，要么在 root.allow 里加一行并说明理由
+
+2 error, 0 warn
+```
+
+每行四样：位置、违反哪条底线、级别、怎么办。`error` 表示结构坏了（退出码 1）；`warn` 表示值得看一眼，加 `--strict` 就一起当失败。
+
+## 命令
+
+| 命令 | 做什么 | 会改文件吗 |
+|---|---|---|
+| `init` | 建契约、入口、导航，装 `tools/pce.py` | 会，逐项确认 |
+| `audit` | 只读体检：多大、多乱、缺什么 | 不会 |
+| `check` | 跑 12 条规则，打印结果 | 不会 |
+| `map` | 让导航表和磁盘对齐 | 会，只增删行 |
+| `new` | 在契约允许的位置建文件或目录 | 会 |
+| `archive` | 把不再用的文件挪进归档区并登记 | 会 |
+| `explain` | 解释某个路径为什么被判成这样 | 不会 |
+| `upgrade` | 更新仓库里的 `tools/pce.py` | 会；本地改过就停手 |
+| `hook install/uninstall` | 装/卸 pre-commit 钩子 | 会 |
+
+任何写入都先出计划；非交互环境（CI、脚本）必须加 `--apply`，否则只打印、不落盘。
+
+## 五条底线，十二条检查
+
+检查不是代码风格 lint，每条都挂在一条底线上：
+
+- **I1 归属完备**——每个文件要么落在某个分区里，要么被根白名单明确允许。
+- **I2 地图完备**——有子目录的目录，都要有一份 `navigation.md` 说清每个子目录管什么。
+- **I4 名实相符**——名字符合契约，任何链接或带路径的引用都能落到真实文件上。
+- **I5 入口可用**——`AGENTS.md` 保持短、不写日志；它每一轮都会被加载。
+- **I3 时效可见**——每层导航显示这一层最后什么时候动过，由 git 算，不手写。
+
+S1–S12 是具体检查（根文件、导航存在、双向对账、命名、死链、归档旧路径、空目录、分区重叠、空话说明、归档登记、入口长度）。逐条说明见 [references/validation.md](references/validation.md)。
+
+## 常见问题
+
+**会改我的文件吗？** `audit`、`check`、`explain` 从不写。会写的那几个都先出计划、等你确认；一批里只要有一条不合规，整批停下。
+
+**必须用 git 吗？** 不必须。没有 git 时 `map` 填不了“最后更新”那一列，`archive` 退化成普通移动，其余照常。
+
+**会和别的 skill 抢 `AGENTS.md` 吗？** 它只管 `<!-- pce:begin -->` 到 `<!-- pce:end -->` 之间这一段，段外一个字不动；段内被你改过就保留原样，除非显式加 `--reset-agents`。
+
+**为什么是 Python 和 YAML？** `tools/pce.py` 是单文件、只用标准库、Python 3.9+，不需要安装。YAML 由同一个文件里一个刻意做小的子集解析器处理，所以既不引依赖，也不会出现版本漂移。
+
+**monorepo 怎么办？** 一个仓库根一份契约，各个包放在分区里；嵌套仓库暂不支持。
+
+**不装 skill 能用吗？** 能。skill 只是触发入口，真正干活的是仓库里那份 `tools/pce.py`。
+
+**能进 CI 吗？** 能：`python3 tools/pce.py check --strict` 有任何问题就退出 1。pre-commit 钩子是可选件，默认不装。
+
+## 仓库结构
+
+```
+SKILL.md            agent 读的入口
+AGENTS.md           改这个包本身时怎么干活
+references/         契约、放置、检查、迁移、理念
+assets/templates/   新建仓库时复制过去的模板
+tools/pce.py        检查器（单文件，只用标准库）
+```
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。

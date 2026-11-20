@@ -12,6 +12,7 @@ zones:
 root:
   allow:
     - README.md
+    - README.zh.md
     - AGENTS.md
     - SKILL.md
     - structure.yaml
