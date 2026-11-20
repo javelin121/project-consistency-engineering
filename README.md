@@ -10,6 +10,8 @@
 
 An agent skill that keeps a repository's structure honest: every file has a home, every folder has a one-line job, and the map is updated in the same change that moves the furniture.
 
+It only checks **where things are and whether the map kept up** — not whether the docs are accurate or the code runs.
+
 ## The problem
 
 A repo built together with an agent rots in four predictable ways:

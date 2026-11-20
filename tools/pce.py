@@ -17,7 +17,7 @@ import subprocess
 import sys
 import unicodedata
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
