@@ -1,9 +1,9 @@
 **English** | [简体中文](README.zh.md)
 
 <p align="center">
-  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-24292f?style=flat">
-  <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-24292f?style=flat">
-  <img alt="dependencies none" src="https://img.shields.io/badge/dependencies-none-2ea44f?style=flat">
+  <img alt="MIT" src="assets/badges/license.svg" height="20">
+  <img alt="Python 3.9+" src="assets/badges/python.svg" height="20">
+  <img alt="dependencies none" src="assets/badges/dependencies.svg" height="20">
 </p>
 
 # Project Consistency Engineering
