@@ -15,16 +15,16 @@
 | S9 | “负责什么”写成了空话（其他、杂项、临时、暂存、待定） | I2 | warn |
 | S10 | 归档区每个文件在 `ARCHIVE.md` 有登记（`ARCHIVE.md` 自己除外） | I4 | warn |
 | S11 | `AGENTS.md` 超 120 行、不同日期达到 10 个，或 PCE 标记段重复/未闭合 | I5 | warn |
-| S12 | `tools/pce.py` 之外出现别的 PCE 脚本副本（按文件头特征认，不认文件名） | I4 | warn |
+| S12 | 仓库里还留着 PCE 脚本的副本（除了你自己 vendored 的那一份；按文件头特征认，不认文件名） | I4 | warn |
 
 ## 豁免
 
 - `ignore` 里的目录整棵子树不参与，S2、S3、S8 和 `map` 也跳过。
 - 任何层级上以 `.` 开头的工具目录（`.github/`、`.vscode/`）：S2、S3、S4、S8、S9 和 `map` 都跳过它；但里面的文件仍然参与 S6、S7。
 - 归档区内部不要求 `navigation.md`、不查命名与归属；只受 S7、S11 管。
-- 同一处问题只报一次：归档后旧路径同时触发 S6 和 S7 时，只报 S7。
+- 同一处问题只报一次：归档后旧路径同时触发 S5 和 S6 时，只报 S6。
 - S6 不拆成“文档链接”和“代码路径”两条：一条规则里已经用 `error` / `warn` 分开了两级，拆开只会让编号变多、判断变碎。
-- `tools/pce.py` 不参与 S6 和 `explain` 的引用扫描：里面是示例路径，不是真引用。
+- PCE 自己的脚本不参与 S5 和 `explain` 的引用扫描：里面是示例路径，不是真引用。按内容特征认（文件头含 `pce — project consistency engineering`，或同时含 `CONTRACT = "structure.yaml"` 与 `VERSION = "`），改文件名躲不掉。
 
 ## 输出
 

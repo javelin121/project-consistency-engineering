@@ -18,7 +18,7 @@
    行数、有没有日志和日期。超过 120 行或满是日期的，先记一笔，别当场改。
 
 5. **跑一遍检查**
-   `python tools/pce.py check`。先看 error 数量，再看 warn 分布。
+   `pce check`。先看 error 数量，再看 warn 分布。
 
 ## 必须问用户的三件事
 

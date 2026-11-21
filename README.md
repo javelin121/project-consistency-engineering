@@ -41,28 +41,28 @@ The contract is the single source of truth. The maps are rendered from it and up
 git clone <repo-url> ~/.agents/skills/project-consistency-engineering
 ```
 
-Some CLIs read a different folder (`~/.claude/skills/`, and so on). That only decides whether the skill *triggers*; everything it needs is copied into your repository, so `python3 tools/pce.py check` works either way.
+Some CLIs read a different folder (`~/.claude/skills/`, and so on). That only decides whether the skill *triggers*. The workflow itself needs nothing but the checker, which lives in the skill.
 
 ## Thirty seconds
 
 ```sh
 cd your-repo
 python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py init
-python3 tools/pce.py check
+python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py check
 ```
 
-`init` asks before it writes: what the general zone is called, what each zone is for, whether to claim an archive folder, and whether each stray root file belongs in the allow-list. It copies `tools/pce.py` into your repo, so the repo no longer depends on the skill being installed.
+`init` asks before it writes: what the general zone is called, what each zone is for, whether to claim an archive folder, and whether each stray root file belongs in the allow-list. It does **not** copy the checker into your repo — a copy drifts from the installed version. Pass `--vendor` when you need one inside the repo (CI, machines without the skill); `upgrade` maintains that copy.
 
 Old repository? Start read-only:
 
 ```sh
-python3 tools/pce.py audit
+python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py audit
 ```
 
 ## What it looks like
 
 ```console
-$ python3 tools/pce.py check
+$ python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py check
 README.md  I4  error  still points at the old path src/legacy/old.py; it now lives at archive/src/legacy/old.py
 notes.txt  I1  error  root-level file notes.txt is not in root.allow; move it into a zone, or allow it with a reason
 
@@ -79,14 +79,14 @@ Output is currently Chinese only; the rules and the data model are language-neut
 
 | Command | What it does | Writes files? |
 |---|---|---|
-| `init` | Create the contract, entry point, maps; install `tools/pce.py` | yes, item by item |
+| `init` | Create the contract, entry point, maps; `--vendor` also installs `tools/pce.py` | yes, item by item |
 | `audit` | Read-only survey: size, mess, what is missing | no |
 | `check` | Run the 12 rules; print findings | no |
 | `map` | Reconcile each map with the disk | yes, rows only |
 | `new` | Create a file or folder in a place the contract allows | yes |
 | `archive` | Move retired files into the archive zone and register them | yes |
 | `explain` | Explain why a path is judged the way it is | no |
-| `upgrade` | Update `tools/pce.py` | yes; stops if you edited it |
+| `upgrade` | Update a vendored `tools/pce.py`; does nothing when there is none | yes; stops if you edited it or the upstream is older |
 | `hook install/uninstall` | Install or remove a pre-commit hook | yes |
 
 Every write prints a plan first. In a non-interactive shell (CI, scripts) writes require `--apply`; without it nothing is written.
@@ -101,7 +101,7 @@ The checks are not a style lint. Each one hangs off a principle:
 - **I5 Entry stays usable** — `AGENTS.md` stays short and free of logs; it is loaded on every turn.
 - **I3 Freshness** — each map shows when its folder last changed, computed from git, never hand-written.
 
-S1–S12 are the concrete checks (root files, map presence, two-way reconciliation, naming, dead links, archived paths, empty folders, overlapping zones, vague descriptions, archive registry, entry length). Details: [references/validation.md](references/validation.md).
+S1–S12 are the concrete checks (root files, map presence, two-way reconciliation, description consistency, dead links, archived paths, empty folders, overlapping zones, vague descriptions, archive registry, entry length, duplicate copies of the checker). Naming is advice, not a check. Details: [references/validation.md](references/validation.md).
 
 ## FAQ
 
@@ -111,13 +111,13 @@ S1–S12 are the concrete checks (root files, map presence, two-way reconciliati
 
 **Does it fight with other skills that write `AGENTS.md`?** It owns only the block between `<!-- pce:begin -->` and `<!-- pce:end -->`. It never touches text outside those markers; if the block was edited locally it is left alone unless you pass `--reset-agents`.
 
-**Why Python and YAML?** `tools/pce.py` is one file, standard library only, Python 3.9+, no install step. YAML is parsed by a deliberately small subset parser shipped in the same file, so there is no dependency and no drift between versions.
+**Why Python and YAML?** The checker is one file, standard library only, Python 3.9+, no install step. YAML is parsed by a deliberately small subset parser shipped in the same file, so there is no dependency and no drift between versions.
 
 **Monorepo?** One contract per repository root. Packages live inside zones; nested repositories are not supported yet.
 
-**Can I use it without the skill?** Yes. The skill is only a way to trigger the workflow. `tools/pce.py` in your repo is the whole tool.
+**Can I use it without the skill?** Yes. The skill is only a way to trigger the workflow; the checker is the whole tool. Run it from anywhere, or vendor it with `init --vendor`.
 
-**Can it run in CI?** Yes: `python3 tools/pce.py check --strict` exits 1 on any finding. A pre-commit hook is optional and never installed by default.
+**Can it run in CI?** Yes: vendor the checker (`init --vendor`) and run `python3 tools/pce.py check --strict`; it exits 1 on any finding. A pre-commit hook is optional and never installed by default.
 
 ## Repository layout
 

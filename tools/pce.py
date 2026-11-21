@@ -17,7 +17,7 @@ import subprocess
 import sys
 import unicodedata
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -1324,7 +1324,7 @@ AGENTS_TPL = """<!-- pce:begin -->
 2. 新建走 `pce new <路径>`，不要直接在编辑器里丢文件；建目录要给它一句“负责什么”。
 3. 移动、改名、删除、归档，先出计划等人确认；要留凭据的旧文件用 `pce archive <路径> --reason "为什么"`。
 4. 改完跑 `pce check`，error 清零；导航和磁盘对不上时跑 `pce map`。
-5. 仓库里没有 `pce` 命令，就用根目录的 `python3 tools/pce.py`。
+5. 没有 `pce` 命令时：仓库里有 `tools/pce.py` 就用它，没有就用 `python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py`。
 <!-- pce:end -->
 """
 
@@ -1432,6 +1432,7 @@ def cmd_init(root, args):
     targets = []
     contract_path = os.path.join(root, CONTRACT)
     zone_name, zone_what, tools_what = "src", "程序源码", "脚本与工具"
+    vendor = "--vendor" in args
     archive_path = ""
     extras = []
     if not os.path.isfile(contract_path):
@@ -1452,7 +1453,11 @@ def cmd_init(root, args):
         if interactive():
             zone_name = ask("通用区叫什么名字？", "src") or "src"
             zone_what = ask("%s/ 负责什么？" % zone_name, "程序源码") or "程序源码"
-            tools_what = ask("tools/ 负责什么？", "脚本与工具") or "脚本与工具"
+            if "--vendor" not in args:
+                vendor = ask("要把校验器复制一份进仓库吗（给 CI / 没装 skill 的机器用）？(y/n)",
+                             "n").lower().startswith("y")
+            if vendor:
+                tools_what = ask("tools/ 负责什么？", "脚本与工具") or "脚本与工具"
             if found_old:
                 want_archive = ask("发现 %s/，它是归档区吗？(y/n)" % found_old, "y").lower().startswith("y")
             else:
@@ -1461,7 +1466,7 @@ def cmd_init(root, args):
                     if ask("根目录的 %s 要放进白名单吗？(y/n)" % n, "y").lower().startswith("y")]
             extras = kept
         archive_path = (found_old if found_old and want_archive else ("archive" if want_archive else ""))
-        zones = [("tools", tools_what), (zone_name, zone_what)]
+        zones = ([("tools", tools_what)] if vendor else []) + [(zone_name, zone_what)]
         targets.append((CONTRACT, _contract_body(zones, extras, archive_path)))
     else:
         try:
@@ -1496,12 +1501,14 @@ def cmd_init(root, args):
         targets.append(("README.md",
                         "# %s\n\n一句话说明这个项目是做什么的。\n\n## 怎么跑\n\n（写清楚跑起来的命令）\n"
                         % os.path.basename(root)))
-    os.makedirs(os.path.join(root, "tools"), exist_ok=True)
     src = os.path.abspath(__file__)
     dst = os.path.join(root, "tools", "pce.py")
     sha_path = os.path.join(root, "tools", SHA)
-    same_file = os.path.exists(dst) and os.path.samefile(src, dst)
-    if not same_file:
+    vendor = vendor or os.path.exists(dst)
+    if vendor:
+        os.makedirs(os.path.join(root, "tools"), exist_ok=True)
+    same_file = vendor and os.path.exists(dst) and os.path.samefile(src, dst)
+    if vendor and not same_file:
         if os.path.exists(dst):
             if sha256_file(dst) == sha256_file(src):
                 if not os.path.isfile(sha_path):
@@ -1516,14 +1523,15 @@ def cmd_init(root, args):
             with open(sha_path, "w", encoding="utf-8") as f:
                 f.write(sha256_file(dst) + "\n")
     if not os.path.isfile(os.path.join(root, NAV)):
-        rows = [("tools", tools_what), (zone_name, zone_what)]
+        rows = ([("tools", tools_what)] if vendor else []) + [(zone_name, zone_what)]
         if archive_path:
             rows.append((archive_path, "不再使用、但想留个凭据的文件"))
         targets.append((NAV, NAV_TPL % (MAP_BEGIN,
                                         "\n".join("| %s | %s | | |" % r for r in rows),
                                         MAP_END)))
     emit("会生成：")
-    for rel in [r for r, _ in targets] + ["tools/pce.py", "tools/" + SHA]:
+    extra = ["tools/pce.py", "tools/" + SHA] if vendor else []
+    for rel in [r for r, _ in targets] + extra:
         emit("  " + rel)
     for rel, body in targets:
         path = os.path.join(root, rel)
@@ -1545,7 +1553,11 @@ def cmd_init(root, args):
     except ContractError:
         pass
     emit("")
-    emit("下一步：`python tools/pce.py check`")
+    if vendor:
+        emit("下一步：`python3 tools/pce.py check`")
+    else:
+        emit("下一步：`python3 %s check`" % src)
+        emit("（校验器不复制进仓库；要复制给 CI 用，跑 `pce init --vendor`）")
     return EXIT_OK
 
 
@@ -2118,12 +2130,31 @@ def _find_upstream():
     return None
 
 
+def _read_version(path):
+    text = read_text(path)
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("VERSION"):
+            m = re.search(r'"([0-9][^"]*)"', line)
+            if m:
+                return m.group(1)
+    return ""
+
+
+def _version_key(text):
+    parts = []
+    for piece in re.split(r"[.\-]", text or "0"):
+        parts.append(int(piece) if piece.isdigit() else 0)
+    return tuple(parts)
+
+
 def cmd_upgrade(root, args):
     target = os.path.join(root, "tools", "pce.py")
     record = os.path.join(root, "tools", SHA)
     if not os.path.isfile(target):
-        emit("仓库里没有 tools/pce.py，先跑 `pce init`")
-        return EXIT_USAGE
+        emit("这个仓库没有 vendored 副本（tools/pce.py）——升级 skill 本身就够了，这里不用动。")
+        emit("要给 CI 留一份，跑 `pce init --vendor`。")
+        return EXIT_OK
     src = None
     if "--from" in args:
         i = args.index("--from")
@@ -2143,6 +2174,16 @@ def cmd_upgrade(root, args):
     if old == new:
         emit("已经是最新")
         return EXIT_OK
+    here = _read_version(target)
+    there = _read_version(src)
+    if there and here and _version_key(there) < _version_key(here):
+        emit("上游那份是 %s，比仓库里的 %s 旧，不降级。" % (there, here))
+        emit("比一下：pce upgrade --from <更新的那份>，或者把上游指向开发仓库。")
+        return EXIT_FAIL
+    if there and here and _version_key(there) == _version_key(here):
+        emit("两边都是 %s，但内容不一样——可能是仓库里这份被改过，也可能上游没发布。" % there)
+        emit("不覆盖。确认要换，就 pce upgrade --from <那份> --force。")
+        return EXIT_FAIL
     if recorded and recorded != old:
         emit("本地这份被改过（和安装时记录的不一致），不覆盖。")
         try:
@@ -2161,12 +2202,15 @@ def cmd_upgrade(root, args):
         emit("没有 tools/%s，无法判断本地有没有改过，不覆盖。" % SHA)
         return EXIT_FAIL
     if "--check" in args:
-        emit("有新版本可用（%s）" % VERSION)
+        emit("有新版本可用（%s → %s）" % (here or "?", there or "?"))
         return EXIT_OK
+    if "--force" not in args and recorded != old:
+        emit("本地这份和安装记录不一致，不覆盖。")
+        return EXIT_FAIL
     shutil.copyfile(src, target)
     with open(record, "w", encoding="utf-8") as f:
         f.write(new + "\n")
-    emit("已升级到 %s" % VERSION)
+    emit("已升级到 %s（原来是 %s）" % (there or "?", here or "?"))
     return EXIT_OK
 
 

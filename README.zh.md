@@ -39,28 +39,28 @@
 git clone <仓库地址> ~/.agents/skills/project-consistency-engineering
 ```
 
-不同 CLI 读的目录可能不同（比如 `~/.claude/skills/`）。这只影响 skill 会不会被触发；它用到的东西都会复制进你的仓库，所以 `python3 tools/pce.py check` 在哪种情况下都能跑。
+不同 CLI 读的目录可能不同（比如 `~/.claude/skills/`）。这只影响 skill 会不会被触发；真正干活的东西只有校验器，它在 skill 里。
 
 ## 三十秒上手
 
 ```sh
 cd your-repo
 python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py init
-python3 tools/pce.py check
+python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py check
 ```
 
-`init` 每一步都先问：通用分区叫什么、每个分区负责什么、要不要认领归档目录、根上那些散落文件要不要进白名单。它会把 `tools/pce.py` 复制进你的仓库——之后这个仓库不再依赖 skill 装没装。
+`init` 每一步都先问：通用分区叫什么、每个分区负责什么、要不要认领归档目录、根上那些散落文件要不要进白名单。它**不**把校验器复制进你的仓库——复制一份迟早会和装的那份分叉。需要仓库里有一份（CI、没装 skill 的机器）就加 `--vendor`，那份副本由 `upgrade` 管。
 
 老仓库先只读体检，不动任何文件：
 
 ```sh
-python3 tools/pce.py audit
+python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py audit
 ```
 
 ## 长什么样
 
 ```console
-$ python3 tools/pce.py check
+$ python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py check
 README.md  I4  error  还按旧路径引用 src/legacy/old.py；它现在是 archive/src/legacy/old.py
 notes.txt  I1  error  根目录下多了个文件 notes.txt；要么挪进某个分区，要么在 root.allow 里加一行并说明理由
 
@@ -73,14 +73,14 @@ notes.txt  I1  error  根目录下多了个文件 notes.txt；要么挪进某个
 
 | 命令 | 做什么 | 会改文件吗 |
 |---|---|---|
-| `init` | 建契约、入口、导航，装 `tools/pce.py` | 会，逐项确认 |
+| `init` | 建契约、入口、导航；`--vendor` 时连 `tools/pce.py` 一起装 | 会，逐项确认 |
 | `audit` | 只读体检：多大、多乱、缺什么 | 不会 |
 | `check` | 跑 12 条规则，打印结果 | 不会 |
 | `map` | 让导航表和磁盘对齐 | 会，只增删行 |
 | `new` | 在契约允许的位置建文件或目录 | 会 |
 | `archive` | 把不再用的文件挪进归档区并登记 | 会 |
 | `explain` | 解释某个路径为什么被判成这样 | 不会 |
-| `upgrade` | 更新仓库里的 `tools/pce.py` | 会；本地改过就停手 |
+| `upgrade` | 更新 vendored 的 `tools/pce.py`；没有副本时什么都不做 | 会；本地改过、或上游不比它新，就停手 |
 | `hook install/uninstall` | 装/卸 pre-commit 钩子 | 会 |
 
 任何写入都先出计划；非交互环境（CI、脚本）必须加 `--apply`，否则只打印、不落盘。
@@ -105,13 +105,13 @@ S1–S12 是具体检查（根文件、导航存在、双向对账、说明一�
 
 **会和别的 skill 抢 `AGENTS.md` 吗？** 它只管 `<!-- pce:begin -->` 到 `<!-- pce:end -->` 之间这一段，段外一个字不动；段内被你改过就保留原样，除非显式加 `--reset-agents`。
 
-**为什么是 Python 和 YAML？** `tools/pce.py` 是单文件、只用标准库、Python 3.9+，不需要安装。YAML 由同一个文件里一个刻意做小的子集解析器处理，所以既不引依赖，也不会出现版本漂移。
+**为什么是 Python 和 YAML？** 校验器是单文件、只用标准库、Python 3.9+，不需要安装。YAML 由同一个文件里一个刻意做小的子集解析器处理，所以既不引依赖，也不会出现版本漂移。
 
 **monorepo 怎么办？** 一个仓库根一份契约，各个包放在分区里；嵌套仓库暂不支持。
 
-**不装 skill 能用吗？** 能。skill 只是触发入口，真正干活的是仓库里那份 `tools/pce.py`。
+**不装 skill 能用吗？** 能。skill 只是触发入口，真正干活的是校验器本身；在哪儿跑都行，或者用 `init --vendor` 复制一份进仓库。
 
-**能进 CI 吗？** 能：`python3 tools/pce.py check --strict` 有任何问题就退出 1。pre-commit 钩子是可选件，默认不装。
+**能进 CI 吗？** 能：先 `init --vendor` 把校验器放进仓库，再跑 `python3 tools/pce.py check --strict`，有任何问题就退出 1。pre-commit 钩子是可选件，默认不装。
 
 ## 仓库结构
 

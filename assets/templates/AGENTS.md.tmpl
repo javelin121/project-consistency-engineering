@@ -7,5 +7,5 @@
 2. 新建走 `pce new <路径>`，不要直接在编辑器里丢文件；建目录要给它一句“负责什么”。
 3. 移动、改名、删除、归档，先出计划等人确认；要留凭据的旧文件用 `pce archive <路径> --reason "为什么"`。
 4. 改完跑 `pce check`，error 清零；导航和磁盘对不上时跑 `pce map`。
-5. 仓库里没有 `pce` 命令，就用根目录的 `python3 tools/pce.py`。
+5. 没有 `pce` 命令时：仓库里有 `tools/pce.py` 就用它，没有就用 `python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py`。
 <!-- pce:end -->

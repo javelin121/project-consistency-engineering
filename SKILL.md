@@ -50,4 +50,4 @@ description: 让 agent 在仓库里干活时，文件始终放在该放的地方
 
 命令与参数：`python tools/pce.py check`、`audit`、`map`、`new`、`archive`、`explain`、`init`、`upgrade`、`hook install|uninstall`。
 
-下文的 `pce` 都是 `python3 tools/pce.py` 的简写，在仓库根执行。
+下文的 `pce` 都是在仓库根执行的那条命令：仓库里有 `tools/pce.py` 就写 `python3 tools/pce.py`，没有就写 `python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py`。
