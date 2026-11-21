@@ -89,6 +89,7 @@ notes.txt  I1  error  根目录下多了个文件 notes.txt；要么挪进某个
 | `archive` | 把不再用的文件挪进归档区并登记 | 会 |
 | `explain` | 解释某个路径为什么被判成这样 | 不会 |
 | `upgrade` | 更新 vendored 的 `tools/pce.py`；没有副本时什么都不做 | 会；本地改过、或上游不比它新，就停手 |
+| `scaffold` | 按 plan 预建目录树：每个节点要有一句“负责什么”；校验名字、深度、重复后建目录、写导航表、登记分区 | 会；先打印计划 |
 | `upgrade-repo` | 把仓库里的产物迁到当前版本：`AGENTS.md` 的 PCE 段（只在版本记录可信时替换）、`structure.yaml` 的生成记录 | 会；先打印计划 |
 | `hook install/uninstall` | 装/卸 pre-commit 钩子 | 会 |
 

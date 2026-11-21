@@ -95,6 +95,7 @@ Output is currently Chinese only; the rules and the data model are language-neut
 | `archive` | Move retired files into the archive zone and register them | yes |
 | `explain` | Explain why a path is judged the way it is | no |
 | `upgrade` | Update a vendored `tools/pce.py`; does nothing when there is none | yes; stops if you edited it or the upstream is older |
+| `scaffold` | Pre-build the directory tree from a plan file: every node needs a one-line purpose; checks names, depth, duplicates, then creates dirs, navigation tables and zones | yes; prints the plan first |
 | `upgrade-repo` | Bring the repo's own files up to this version: the `AGENTS.md` block (only when its version record is trustworthy) and the `structure.yaml` stamp | yes; prints a plan first |
 | `hook install/uninstall` | Install or remove a pre-commit hook | yes |
 

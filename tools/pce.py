@@ -17,7 +17,7 @@ import subprocess
 import sys
 import unicodedata
 
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -863,8 +863,8 @@ def rule_s7(scan, out):
                 continue
             files = [f for f in scan.subtree_files(rel) if not scan.in_archive(f)]
             if not files:
-                out.append(Finding("S7", rel, "warn",
-                                   "这个子目录里一个文件都没有"))
+                out.append(Finding("S7", rel, "info",
+                                   "这个子目录还空着；规划中的就忽略，清理后留下的就删行或删目录"))
 
 
 def rule_s8(scan, out):
@@ -1076,7 +1076,7 @@ def cmd_check(root, args):
     errors = [f for f in items if f.level == "error"]
     if errors:
         return EXIT_FAIL
-    if strict and any(f.level in ("warn", "info") for f in items):
+    if strict and any(f.level == "warn" for f in items):
         return EXIT_FAIL
     return EXIT_OK
 
@@ -2341,6 +2341,174 @@ def cmd_upgrade_repo(root, args):
     return EXIT_OK
 
 
+PLAN_EXAMPLE = """zones:
+  src:
+    what: 程序源码
+    children:
+      auth:
+        what: 认证、会话、权限
+      billing:
+        what: 计费与账期
+  docs:
+    what: 说明文档
+    children:
+      adr:
+        what: 架构决策记录
+"""
+
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _plan_walk(name, node, base, depth, limit, out, errors):
+    if not isinstance(node, dict):
+        errors.append("%s：要写成 {what: …, children: …}" % (name or "根"))
+        return
+    what = node.get("what")
+    if not isinstance(what, str) or not what.strip():
+        errors.append("%s：缺一句“负责什么”（what）" % (name or "根"))
+        return
+    what = what.strip()
+    if is_vague(what):
+        errors.append("%s：负责什么写成了空话（%r）" % (name or "根", what))
+    if name is not None:
+        if not NAME_RE.match(name):
+            errors.append("%s：目录名只能用字母、数字、点、横线、下划线，且不能以符号开头" % name)
+        if depth > limit:
+            errors.append("%s：第 %d 层超过上限 %d 层；先建到第 %d 层，用到再加"
+                          % (name, depth, limit, limit))
+    rel = name if base is None else (base + "/" + name if base else name)
+    if name is not None:
+        out.append((rel, what, depth))
+    children = node.get("children") or {}
+    if not isinstance(children, dict):
+        errors.append("%s：children 要写成“名字: {what: …}”的块" % (name or "根"))
+        return
+    kids = []
+    for child_name, child in children.items():
+        _plan_walk(child_name, child, rel if rel else "", depth + 1, limit, out, errors)
+        kids.append((child_name, (child or {}).get("what", "") if isinstance(child, dict) else ""))
+    for i in range(len(kids)):
+        for j in range(i + 1, len(kids)):
+            a, wa = kids[i]
+            b, wb = kids[j]
+            if _name_similar(a, b):
+                errors.append("%s 与 %s 的名字太像，容易放错" % (a, b))
+            elif wa and wb and jaccard(wa, wb) >= 0.6:
+                errors.append("%s 与 %s 的职责说明几乎一样（%r / %r），合并还是分开？" % (a, b, wa, wb))
+
+
+def cmd_scaffold(root, args):
+    """按一份 plan 预先把目录层级建出来（模型给方案，pce 校验并落地）。"""
+    if "--example" in args:
+        emit(PLAN_EXAMPLE.rstrip("\n"))
+        return EXIT_OK
+
+    src = None
+    positional = [a for a in args if not a.startswith("-")]
+    if positional:
+        src = positional[0]
+    if src is None:
+        emit("给一份 plan：`pce scaffold plan.yaml`，或者从输入读 `pce scaffold -`。")
+        emit("不知道格式就先看样例：`pce scaffold --example`。")
+        return EXIT_USAGE
+    if src == "-":
+        text = sys.stdin.read()
+    else:
+        path = src if os.path.isabs(src) else os.path.join(os.getcwd(), src)
+        if not os.path.isfile(path):
+            emit("找不到 %s" % src)
+            return EXIT_USAGE
+        text = read_text(path)
+    try:
+        data = parse_yaml(text)
+    except YamlError as exc:
+        emit("plan 读不了：%s" % exc)
+        return EXIT_FAIL
+
+    limit = 3
+    if "--depth" in args:
+        i = args.index("--depth")
+        if i + 1 < len(args) and args[i + 1].isdigit():
+            limit = int(args[i + 1])
+    errors = []
+    if not isinstance(data, dict) or "zones" not in data:
+        emit("plan 里要有 zones:（根下一级的分区）")
+        return EXIT_FAIL
+    extra = [k for k in data if k != "zones"]
+    if extra:
+        errors.append("plan 里只能有 zones，不认识：%s" % ", ".join(extra))
+    zones = data.get("zones") or {}
+    if not isinstance(zones, dict) or not zones:
+        emit("plan 里的 zones 是空的")
+        return EXIT_FAIL
+    nodes = []
+    for zone_name, node in zones.items():
+        _plan_walk(zone_name, node, "", 1, limit, nodes, errors)
+
+    try:
+        contract = load_contract(root)
+    except ContractError as exc:
+        emit("先解决契约问题：%s" % exc)
+        return EXIT_FAIL
+    for rel, what, depth in nodes:
+        head = rel.split("/")[0]
+        if depth == 1:
+            if _name_similar(head, contract.archive_dir()) if contract.archive_dir() else False:
+                errors.append("%s 和归档区同名" % head)
+            for other, info in contract.zones.items():
+                if other == head:
+                    continue
+                if _name_similar(head, other):
+                    errors.append("%s 与已有分区 %s 的名字太像" % (head, other))
+                elif jaccard(what, info.get("what", "")) >= 0.6:
+                    errors.append("%s 与已有分区 %s 的职责说明几乎一样（%r / %r）"
+                                  % (head, other, what, info.get("what", "")))
+    if errors:
+        emit("这份 plan 不能直接用：")
+        for e in errors:
+            emit("  - " + e)
+        return EXIT_FAIL
+
+    emit("会建 %d 个目录，并在每层 navigation.md 里登记：" % len(nodes))
+    for rel, what, depth in nodes:
+        full = os.path.join(root, rel)
+        state = "已存在，跳过" if os.path.isdir(full) else "新建"
+        emit("  %-28s %-24s %s" % (rel + "/", what, state))
+    if "--apply" not in args:
+        if not sys.stdin.isatty():
+            emit("要执行就加 `--apply`。")
+            return EXIT_OK
+        emit("执行？(y/N)")
+        if sys.stdin.readline().strip().lower() not in ("y", "yes"):
+            emit("没改。")
+            return EXIT_OK
+
+    for rel, what, depth in nodes:
+        os.makedirs(os.path.join(root, rel), exist_ok=True)
+    whats = {(rel): what for rel, what, depth in nodes}
+    for rel, what, depth in nodes:
+        parent = os.path.dirname(rel) or "."
+        nav_put_row(root, parent, os.path.basename(rel), what,
+                    first_line=whats.get(parent))
+    new_zones = [(rel, what) for rel, what, depth in nodes if depth == 1 and rel not in contract.zones]
+    if new_zones:
+        cpath = os.path.join(root, CONTRACT)
+        raw = read_text(cpath)
+        lines = raw.splitlines()
+        for i, line in enumerate(lines):
+            if line.strip() == "zones:":
+                add = []
+                for name, what in new_zones:
+                    add += ["  %s:" % name, "    what: %s" % what]
+                lines[i + 1:i + 1] = add
+                break
+        with open(cpath, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    emit("建好了。空目录不会进 git——clone 下来后重跑一次 `pce scaffold` 就补齐。")
+    emit("下一步：`pce check`。")
+    return EXIT_OK
+
+
 def cmd_upgrade(root, args):
     target = os.path.join(root, "tools", "pce.py")
     record = os.path.join(root, "tools", SHA)
@@ -2469,6 +2637,7 @@ USAGE = """pce %s — 项目一致性工程
   explain <路径>        解释某个路径为什么被判成这样
   upgrade [--check]     把仓库里的 tools/pce.py 换成本机这一份
   upgrade-repo [--apply] 把仓库里的 AGENTS.md 段、生成记录迁到当前版本
+  scaffold <plan.yaml|-> [--apply] [--depth N] [--example]  按 plan 预建目录层级
   hook install|uninstall                  装/撤 git pre-commit 钩子
 """ % VERSION
 
@@ -2498,7 +2667,7 @@ def main(argv):
     table = {
         "init": cmd_init, "audit": cmd_audit, "check": cmd_check, "map": cmd_map,
         "new": cmd_new, "archive": cmd_archive, "explain": cmd_explain,
-        "upgrade": cmd_upgrade, "upgrade-repo": cmd_upgrade_repo, "hook": cmd_hook,
+        "upgrade": cmd_upgrade, "upgrade-repo": cmd_upgrade_repo, "scaffold": cmd_scaffold, "hook": cmd_hook,
     }
     if "--json" in rest and cmd not in ("audit", "check"):
         emit("--json 只给 audit 和 check 用")
