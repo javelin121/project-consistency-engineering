@@ -15,9 +15,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unicodedata
 
-VERSION = "0.6.2"
+VERSION = "0.6.3"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -1518,6 +1519,7 @@ def _register_preexisting_archive(root, archive):
 
 def cmd_init(root, args):
     targets = []
+    force = set()
     contract_path = os.path.join(root, CONTRACT)
     zone_name, zone_what, tools_what = "src", "程序源码", "脚本与工具"
     vendor = "--vendor" in args
@@ -1563,24 +1565,34 @@ def cmd_init(root, args):
             emit("%s 读不懂：%s" % (CONTRACT, e))
             emit("先把它修好，或者备份走再跑一次 init。")
             return EXIT_FAIL
+        zones_old = [(n, z.get("what", "")) for n, z in old.zones.items()]
+        allow_old = list(((old.data.get("root") or {}).get("allow")) or [])
+        new_text = _contract_body(zones_old, allow_old, old.archive_dir())
+        cur_text = read_text(contract_path)
         action = "k"
         if interactive():
             action = ask("%s 已存在，怎么办？(k) 保留原样 / (b) 备份到临时目录后重写 / (d) 只看差异"
                          % CONTRACT, "k").strip().lower()[:1] or "k"
         if action == "d":
-            emit("%s 现在是这样：" % CONTRACT)
-            for line in old.raw.splitlines():
-                emit("  " + line)
-            emit("要改就自己改；或者选 (b) 备份后按现在的目录重写。")
+            diff = list(difflib.unified_diff(cur_text.splitlines(),
+                                             new_text.splitlines(),
+                                             fromfile="现在", tofile="init 会写",
+                                             lineterm=""))
+            if diff:
+                emit("%s 和 init 会写出来的差别：" % CONTRACT)
+                for line in diff:
+                    emit("  " + line)
+            else:
+                emit("%s 和 init 会写出来的一样，不用改。" % CONTRACT)
+            emit("要改就自己改；或者选 (b) 备份后重写。")
             return EXIT_OK
         if action == "b":
             tmpdir = tempfile.mkdtemp(prefix="pce-init-")
             backup = os.path.join(tmpdir, CONTRACT)
             shutil.copyfile(contract_path, backup)
             emit("原契约备份到 %s" % backup)
-            zones = [(n, z.get("what", "")) for n, z in old.zones.items()]
-            allow = list(old.root_allow)
-            targets.append((CONTRACT, _contract_body(zones, allow, old.archive_dir())))
+            targets.append((CONTRACT, new_text))
+            force.add(CONTRACT)
         else:
             emit("%s 已存在，保留原样（要改就跑 init 选 (b)，或自己改）" % CONTRACT)
 
@@ -1623,7 +1635,7 @@ def cmd_init(root, args):
         emit("  " + rel)
     for rel, body in targets:
         path = os.path.join(root, rel)
-        if os.path.exists(path):
+        if os.path.exists(path) and rel not in force:
             emit("%s 已存在，跳过" % rel)
             continue
         with open(path, "w", encoding="utf-8") as f:
@@ -1910,6 +1922,7 @@ def _lookalike_dirs(root, rel, what):
 
 
 def cmd_new(root, args):
+    confirmed_dirs = set()
     paths = []
     as_dir = "--dir" in args
     what_arg = ""
@@ -1984,8 +1997,21 @@ def cmd_new(root, args):
                     bad.append("%s：要新建分区，又和已有目录 %s 像；分区必须是人明确要的，先确认不重复" % (raw, hint))
                     continue
                 choice = ask("%s 和已有目录 %s 像：(a) 还是建 / (b) 换个名字 / (x) 不建" % (raw, hint), "x")
-                if not choice.strip().lower().startswith("a"):
+                choice = choice.strip().lower()[:1]
+                if choice == "b":
+                    parent = os.path.dirname(rel)
+                    new_name = ask("新名字（只写最后一段）", rel.split("/")[-1]).strip()
+                    if not new_name or new_name == rel.split("/")[-1]:
+                        continue
+                    rel2 = (parent + "/" + new_name) if parent else new_name
+                    if os.path.exists(os.path.join(root, rel2)):
+                        bad.append("%s：已经存在" % rel2)
+                        continue
+                    rel = rel2
+                    raw = rel2
+                elif choice != "a":
                     continue
+                confirmed_dirs.add(rel)
         if want_dir and zone is None and rel not in contract.zones:
             note = "新分区（要写进 structure.yaml）"
         if not want_dir:
@@ -2010,7 +2036,7 @@ def cmd_new(root, args):
         if not ask("建这 %d 个文件？(y/n)" % len(files), "y").lower().startswith("y"):
             plan = [p for p in plan if p[1]]
     for rel, want_dir, _ in plan:
-        if interactive() and want_dir:
+        if interactive() and want_dir and rel not in confirmed_dirs:
             if not ask("建目录 %s？(y/n)" % rel, "y").lower().startswith("y"):
                 emit("跳过 %s" % rel)
                 continue
