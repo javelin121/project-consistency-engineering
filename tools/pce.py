@@ -17,7 +17,7 @@ import subprocess
 import sys
 import unicodedata
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -2400,7 +2400,16 @@ def main(argv):
         emit("")
         emit(USAGE)
         return EXIT_USAGE
-    return fn(root, rest)
+    try:
+        return fn(root, rest)
+    except KeyboardInterrupt:
+        emit("")
+        emit("中止了，没有继续写。")
+        return EXIT_FAIL
+    except OSError as exc:
+        emit("写不进去：%s" % exc)
+        emit("（目标目录没有写权限，或者被沙箱/编辑器占住了）")
+        return EXIT_FAIL
 
 
 if __name__ == "__main__":
