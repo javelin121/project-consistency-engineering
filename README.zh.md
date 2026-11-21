@@ -95,7 +95,7 @@ notes.txt  I1  error  根目录下多了个文件 notes.txt；要么挪进某个
 - **I5 入口可用**——`AGENTS.md` 保持短、不写日志；它每一轮都会被加载。
 - **I3 时效可见**——每层导航显示这一层最后什么时候动过，由 git 算，不手写。
 
-S1–S12 是具体检查（根文件、导航存在、双向对账、命名、死链、归档旧路径、空目录、分区重叠、空话说明、归档登记、入口长度）。逐条说明见 [references/validation.md](references/validation.md)。
+S1–S12 是具体检查（根文件、导航存在、双向对账、说明一致、死链、归档旧路径、空目录、分区重叠、空话说明、归档登记、入口长度、`pce.py` 副本）。命名不在检查里，只给建议。逐条说明见 [references/validation.md](references/validation.md)。
 
 ## 常见问题
 

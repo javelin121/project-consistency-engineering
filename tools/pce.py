@@ -17,7 +17,7 @@ import subprocess
 import sys
 import unicodedata
 
-VERSION = "0.1.4"
+VERSION = "0.2.0"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -506,7 +506,7 @@ class Scan(object):
 
 BASELINE_OF = {
     "S1": "I1", "S2": "I2", "S3": "I2", "S4": "I2", "S5": "I4", "S6": "I4",
-    "S7": "I4", "S8": "I2", "S9": "I1", "S10": "I2", "S11": "I4", "S12": "I5",
+    "S7": "I2", "S8": "I1", "S9": "I2", "S10": "I4", "S11": "I5", "S12": "I4",
 }
 
 
@@ -532,6 +532,34 @@ class Finding(object):
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 PATH_RE = re.compile(r"(?<![\w./-])((?:\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]{1,6})(?![\w/])")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _suggest_name(style, name):
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+    words = [w for w in re.split(r"[_\-. ]+|(?<=[a-z0-9])(?=[A-Z])", stem) if w]
+    if not words:
+        return name
+    if style == "snake":
+        out = "_".join(w.lower() for w in words)
+    elif style == "kebab":
+        out = "-".join(w.lower() for w in words)
+    elif style == "pascal":
+        out = "".join(w[:1].upper() + w[1:].lower() for w in words)
+    elif style == "camel":
+        out = words[0].lower() + "".join(w[:1].upper() + w[1:].lower() for w in words[1:])
+    else:
+        return name
+    return out + ("." + ext if ext else "")
+
+
+def _is_pce_script(text):
+    """按文件头特征认“这是 PCE 自己的脚本”，不认文件名；副本改名也躲不掉。"""
+    head = text[:400]
+    if "pce — project consistency engineering" in head:
+        return True
+    return 'CONTRACT = "structure.yaml"' in text and 'VERSION = "' in text
 
 
 def rule_s1(scan, out):
@@ -729,35 +757,6 @@ def _style_ok(style, name):
     return True
 
 
-def rule_s5(scan, out):
-    for rel in sorted(scan.files):
-        if scan.in_archive(rel) or "/" not in rel or scan.in_tool(rel):
-            continue
-        if rel.split("/")[-1].split(".", 1)[0].isupper():
-            continue
-        style = scan.contract.style_for(rel)
-        if not style:
-            continue
-        name = rel.split("/")[-1]
-        if not _style_ok(style, name):
-            out.append(Finding("S5", rel, "warn",
-                               "名字不符合 %s 风格（约定来自 structure.yaml 的 naming）" % style))
-    for rel in sorted(scan.dirs):
-        if scan.in_archive(rel) or scan.in_tool(rel):
-            continue
-        if rel in scan.contract.zones:
-            style = scan.contract.naming_zones.get(rel, scan.contract.naming_default)
-            name = rel
-        else:
-            style = scan.contract.style_for(rel + "/x")
-            name = rel.split("/")[-1]
-        if not style:
-            continue
-        if not _style_ok(style, name):
-            out.append(Finding("S5", rel, "warn",
-                               "目录名不符合 %s 风格（约定来自 structure.yaml 的 naming）" % style))
-
-
 def _resolve_link(scan, base_rel, target):
     if target.startswith(("http://", "https://", "mailto:", "#")):
         return None
@@ -775,9 +774,9 @@ def _resolve_link(scan, base_rel, target):
 FENCE_RE = re.compile(r"```.*?```", re.S)
 
 
-def rule_s6(scan, out):
+def rule_s5(scan, out):
     for rel, text in scan.texts.items():
-        if rel.endswith("tools/pce.py") or rel == "pce.py":
+        if _is_pce_script(text):
             continue
         text = FENCE_RE.sub("", text)
         for m in LINK_RE.finditer(text):
@@ -791,7 +790,7 @@ def rule_s6(scan, out):
                 arch = scan.contract.archive_dir()
                 if arch and isinstance(resolved, str) and (arch + "/" + strip_dot(resolved)) in scan.file_set:
                     continue
-                out.append(Finding("S6", rel, "error",
+                out.append(Finding("S5", rel, "error",
                                    "链接指向的 %s 不存在" % target))
         if rel.endswith(".md"):
             continue
@@ -808,7 +807,7 @@ def rule_s6(scan, out):
                 continue
             if scan.in_archive(rel):
                 continue
-            out.append(Finding("S6", rel, "warn",
+            out.append(Finding("S5", rel, "warn",
                                "提到了 %s，但仓库里没有这个文件" % cand))
 
 
@@ -832,7 +831,7 @@ def _path_exists(scan, rel, cand):
     return False
 
 
-def rule_s7(scan, out):
+def rule_s6(scan, out):
     archive = scan.contract.archive_dir()
     if not archive:
         return
@@ -847,11 +846,11 @@ def rule_s7(scan, out):
             if other == rel or scan.in_archive(other):
                 continue
             if pat.search(text):
-                out.append(Finding("S7", other, "error",
+                out.append(Finding("S6", other, "error",
                                    "还按旧路径引用 %s；它现在是 %s" % (old, rel)))
 
 
-def rule_s8(scan, out):
+def rule_s7(scan, out):
     layers = ["."] + [d for d in scan.dirs
                       if not scan.in_archive(d) and not scan.in_tool(d)]
     for d in layers:
@@ -864,11 +863,11 @@ def rule_s8(scan, out):
                 continue
             files = [f for f in scan.subtree_files(rel) if not scan.in_archive(f)]
             if not files:
-                out.append(Finding("S8", rel, "warn",
+                out.append(Finding("S7", rel, "warn",
                                    "这个子目录里一个文件都没有"))
 
 
-def rule_s9(scan, out):
+def rule_s8(scan, out):
     names = sorted(scan.contract.zones)
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
@@ -876,17 +875,17 @@ def rule_s9(scan, out):
             wa = scan.contract.zones[a]["what"]
             wb = scan.contract.zones[b]["what"]
             if a in b or b in a:
-                out.append(Finding("S9", "." , "warn",
+                out.append(Finding("S8", "." , "warn",
                                    "分区 %s 与 %s 的名字互相包含，容易放错" % (a, b)))
             elif jaccard(wa, wb) >= 0.6:
-                out.append(Finding("S9", ".", "warn",
+                out.append(Finding("S8", ".", "warn",
                                    "分区 %s 与 %s 的职责说明很像（%r / %r）" % (a, b, wa, wb)))
 
 
-def rule_s10(scan, out):
+def rule_s9(scan, out):
     for name, body in scan.contract.zones.items():
         if is_vague(body["what"]):
-            out.append(Finding("S10", name, "warn",
+            out.append(Finding("S9", name, "warn",
                                "分区的 what 等于没说：%r" % body["what"]))
     layers = ["."] + [d for d in scan.dirs
                       if not scan.in_archive(d) and not scan.in_tool(d)]
@@ -900,11 +899,11 @@ def rule_s10(scan, out):
         for row in rows:
             if row["what"] and is_vague(row["what"]):
                 base = "" if d == "." else d + "/"
-                out.append(Finding("S10", base + row["name"], "warn",
+                out.append(Finding("S9", base + row["name"], "warn",
                                    "这一行的“负责什么”等于没说：%r" % row["what"]))
 
 
-def rule_s11(scan, out):
+def rule_s10(scan, out):
     archive = scan.contract.archive_dir()
     if not archive:
         return
@@ -923,30 +922,42 @@ def rule_s11(scan, out):
         if old == ARCHIVE_LOG:
             continue
         if rel not in registered and old not in registered:
-            out.append(Finding("S11", rel, "warn",
+            out.append(Finding("S10", rel, "warn",
                                "归档区里的文件没在 %s 里登记" % ARCHIVE_LOG))
 
 
-def rule_s12(scan, out):
+def rule_s11(scan, out):
     text = scan.texts.get(AGENTS)
     if text is None:
         return
     lines = len(text.splitlines())
     dates = set(DATE_RE.findall(text))
     if lines > 120:
-        out.append(Finding("S12", AGENTS, "warn",
+        out.append(Finding("S11", AGENTS, "warn",
                            "入口文件 %d 行，超过建议的 120 行；日志、台账、进度搬家" % lines))
     if len(dates) >= 10:
-        out.append(Finding("S12", AGENTS, "warn",
+        out.append(Finding("S11", AGENTS, "warn",
                            "入口文件里有 %d 个不同日期，像台账；入口只留怎么干活" % len(dates)))
     begins = text.count(MARK_BEGIN)
     ends = text.count(MARK_END)
     if begins > 1:
-        out.append(Finding("S12", AGENTS, "warn",
+        out.append(Finding("S11", AGENTS, "warn",
                            "PCE 段出现了 %d 次；同一段只该有一个" % begins))
     if begins != ends:
-        out.append(Finding("S12", AGENTS, "warn",
+        out.append(Finding("S11", AGENTS, "warn",
                            "PCE 段的标记没闭合（begin %d 个、end %d 个）" % (begins, ends)))
+
+
+def rule_s12(scan, out):
+    for rel in sorted(scan.files):
+        if scan.in_archive(rel):
+            continue
+        base = rel.split("/")[-1]
+        if base == "pce.py" or not base.startswith("pce") or not base.endswith(".py"):
+            continue
+        if _is_pce_script(scan.texts.get(rel, "")):
+            out.append(Finding("S12", rel, "warn",
+                               "看起来是 pce.py 的副本；tools/ 下只该留一份，要留凭据用 pce archive"))
 
 
 RULES = [rule_s1, rule_s2, rule_s3, rule_s4, rule_s5, rule_s6,
@@ -1245,10 +1256,13 @@ def cmd_explain(root, args):
     if not is_dir:
         style = contract.style_for(rel)
         name = rel.split("/")[-1]
-        if style:
-            emit("  命名    %s（%s）" % (style, "符合" if _style_ok(style, name) else "不符合"))
+        if style and not _style_ok(style, name):
+            emit("  命名    建议 %s 风格，例如 %s（只是建议，不拦你）"
+                 % (style, _suggest_name(style, name)))
+        elif style:
+            emit("  命名    符合建议的 %s 风格" % style)
         else:
-            emit("  命名    没有约定，不检查")
+            emit("  命名    没有建议，随你")
     parts = rel.split("/")
     found = False
     while parts:
@@ -1877,7 +1891,8 @@ def cmd_new(root, args):
         if not want_dir:
             style = contract.style_for(rel)
             if style and not _style_ok(style, rel.split("/")[-1]):
-                note = "名字不符合 %s 风格（建议改，不改也行）" % style
+                note = "名字建议改成 %s（%s 风格，只是建议）" % (
+                    _suggest_name(style, rel.split("/")[-1]), style)
         plan.append((rel, want_dir, note))
     if bad:
         emit("这批不能建：")
