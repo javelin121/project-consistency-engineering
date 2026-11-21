@@ -17,7 +17,7 @@ import subprocess
 import sys
 import unicodedata
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -946,6 +946,20 @@ def rule_s11(scan, out):
     if begins != ends:
         out.append(Finding("S11", AGENTS, "warn",
                            "PCE 段的标记没闭合（begin %d 个、end %d 个）" % (begins, ends)))
+    if begins == 1 and ends == 1:
+        parsed = _agents_block(text)
+        if parsed:
+            body, version, digest = parsed
+            tpl_body = AGENTS_BODY.strip("\n")
+            if version and digest == _agents_hash(body):
+                if body != tpl_body:
+                    out.append(Finding("S11", AGENTS, "warn",
+                                       "PCE 段还是 %s 版模板，当前检查器是 %s；跑 `pce init` 更新"
+                                       % (version, VERSION)))
+            elif body != tpl_body:
+                out.append(Finding("S11", AGENTS, "warn",
+                                   "PCE 段和当前模板不一样，也没有可信的版本记录（改过或手加的标记）；"
+                                   "确认要接管跑 `pce init --reset-agents`"))
 
 
 def rule_s12(scan, out):
@@ -1315,8 +1329,7 @@ def ask(prompt, default=""):
 
 # ---------------------------------------------------------------- 命令：init
 
-AGENTS_TPL = """<!-- pce:begin -->
-# 怎么在这个仓库里干活
+AGENTS_BODY = """# 怎么在这个仓库里干活
 
 这个仓库的目录结构由 PCE 管：文件放哪、导航怎么写都有规则，`pce check` 会告诉你哪儿不对。
 
@@ -1325,8 +1338,22 @@ AGENTS_TPL = """<!-- pce:begin -->
 3. 移动、改名、删除、归档，先出计划等人确认；要留凭据的旧文件用 `pce archive <路径> --reason "为什么"`。
 4. 改完跑 `pce check`，error 清零；导航和磁盘对不上时跑 `pce map`。
 5. 没有 `pce` 命令时：仓库里有 `tools/pce.py` 就用它，没有就用 `python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py`。
-<!-- pce:end -->
 """
+
+
+META_RE = re.compile(r"<!--\s*pce:template\s+([0-9][^\s]*)\s+sha256:([0-9a-f]+)\s*-->")
+
+
+def _agents_hash(body):
+    norm = "\n".join(line.rstrip() for line in body.strip("\n").splitlines())
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
+
+
+def agents_template():
+    body = AGENTS_BODY.strip("\n")
+    return "%s\n<!-- pce:template %s sha256:%s -->\n%s\n%s\n" % (
+        MARK_BEGIN, VERSION, _agents_hash(body), body, MARK_END)
+
 
 NAV_TPL = """这一层是仓库根。分区和入口在下面这张表里。
 
@@ -1346,11 +1373,38 @@ def _write_if_absent(path, content, mode="w"):
     return True
 
 
+def _agents_block(text):
+    """返回 (段内正文, 版本, 记录哈希)；没有段返回 None。"""
+    i = text.find(MARK_BEGIN)
+    j = text.find(MARK_END, i + 1)
+    if i < 0 or j < 0:
+        return None
+    inner = text[i + len(MARK_BEGIN):j]
+    lines = inner.splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    version = digest = None
+    if lines:
+        m = META_RE.search(lines[0])
+        if m:
+            version, digest = m.group(1), m.group(2)
+            lines = lines[1:]
+    body = "\n".join(line.rstrip() for line in lines).strip("\n")
+    return body, version, digest
+
+
+def _agents_replace(text, block_text):
+    i = text.find(MARK_BEGIN)
+    j = text.find(MARK_END, i + 1) + len(MARK_END)
+    return text[:i] + block_text.rstrip("\n") + text[j:]
+
+
 def apply_agents(root, targets, reset=False):
-    """AGENTS.md 三态：没有就写整份；有标记只换段内；有文件没标记就不碰。"""
+    """AGENTS.md：没有就写整份；有段就按版本记录判断能不能安全替换。"""
     path = os.path.join(root, AGENTS)
+    tpl = agents_template()
     if not os.path.isfile(path):
-        targets.append((AGENTS, AGENTS_TPL))
+        targets.append((AGENTS, tpl))
         return
     current = read_text(path)
     begins = current.count(MARK_BEGIN)
@@ -1358,23 +1412,54 @@ def apply_agents(root, targets, reset=False):
     if begins == 0:
         emit("%s 已存在且没有 PCE 段，整份不动（要接管就自己加 %s）" % (AGENTS, MARK_BEGIN))
         return
+    if begins > 1:
+        emit("%s 里有 %d 个 PCE 段，不猜哪个是对的，不动它" % (AGENTS, begins))
+        return
     if begins != ends:
         emit("%s 里的 PCE 标记没闭合，不动它" % AGENTS)
         return
-    replaced = replace_marked(current, AGENTS_TPL.rstrip("\n"))
-    if replaced == current:
-        emit("%s 的 PCE 段已经是最新的" % AGENTS)
+    parsed = _agents_block(current)
+    if parsed is None:
+        emit("%s 的 PCE 段读不出来，不动它" % AGENTS)
         return
-    if not reset:
-        emit("%s 的 PCE 段和当前模板不一样，保留原样（要换成新版：`pce init --reset-agents`）" % AGENTS)
+    body, recorded_version, recorded_hash = parsed
+    tpl_body = AGENTS_BODY.strip("\n")
+    changed = _agents_diff_lines(body, tpl_body)
+
+    def write(status):
+        new_text = _agents_replace(current, tpl)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_text)
+        emit(status)
+
+    if body == tpl_body:
+        if recorded_version == VERSION and recorded_hash == _agents_hash(body):
+            emit("%s 的 PCE 段已经是最新的" % AGENTS)
+            return
+        write("%s 的 PCE 段内容没变，只把版本记录更新到 %s" % (AGENTS, VERSION))
         return
-    before = current.splitlines()
-    after = replaced.splitlines()
-    changed = [i + 1 for i in range(max(len(before), len(after)))
-               if i >= len(before) or i >= len(after) or before[i] != after[i]]
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(replaced)
-    emit("替换了 %s 的 PCE 段（%d 行有变化）" % (AGENTS, len(changed)))
+    trusted = bool(recorded_version) and recorded_hash == _agents_hash(body)
+    if trusted:
+        write("%s 的 PCE 段从 %s 更新到 %s（%d 行有变化）"
+              % (AGENTS, recorded_version, VERSION, changed))
+        return
+    if reset:
+        write("替换了 %s 的 PCE 段（%d 行有变化）" % (AGENTS, changed))
+        return
+    if recorded_version:
+        emit("%s 的 PCE 段被改过（和安装时记的 %s 不一致），保留原样；要换成新版跑 `pce init --reset-agents`"
+             % (AGENTS, recorded_version))
+    else:
+        emit("%s 的 PCE 段没有版本记录（老版本写的，或手加的标记），不猜它有没有被改过；"
+             "确认要接管跑 `pce init --reset-agents`" % AGENTS)
+
+
+def _agents_diff_lines(a, b):
+    first, last = len(a.splitlines()), len(b.splitlines())
+    al, bl = a.splitlines(), b.splitlines()
+    diff = sum(1 for i in range(max(first, last))
+               if i >= first or i >= last or al[i] != bl[i])
+    return diff
 
 
 def _contract_body(zones, allow, archive_path):

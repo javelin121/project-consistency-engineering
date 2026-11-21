@@ -57,6 +57,14 @@ python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py check
 python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py audit
 ```
 
+## 怎么跟上 skill 的更新
+
+默认**不**把校验器复制进仓库，所以每个仓库跑的都是装着的那一版：更新 skill，规则在所有仓库立刻生效，仓库这边什么都不用做。
+
+`AGENTS.md` 的 PCE 段带一条版本记录（`<!-- pce:template 0.4.0 sha256:… -->`）。段落后于当前模板时，`check` 会提醒；`init` 只在**没人改过**的时候替换它——改过的段不动，要接管就显式跑 `--reset-agents`。
+
+如果你确实 vendored 了校验器（CI、没装 skill 的机器），那份副本就是刻意钉住的版本：`pce upgrade --check` 告诉你 skill 里有没有更新的，`pce upgrade` 拒绝降级、也拒绝覆盖本地改动。
+
 ## 长什么样
 
 ```console

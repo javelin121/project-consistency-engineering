@@ -59,6 +59,14 @@ Old repository? Start read-only:
 python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py audit
 ```
 
+## Staying current
+
+By default the checker is **not** copied into your repository, so every repo runs the installed version: update the skill and the rules are current everywhere, with nothing to do per repo.
+
+The `AGENTS.md` block carries a version line (`<!-- pce:template 0.4.0 sha256:… -->`). `check` tells you when a repository's block is behind the current template; `init` updates it only when nobody has edited it — an edited block is left alone and `--reset-agents` takes it over deliberately.
+
+If you did vendor the checker (CI, machines without the skill), that copy is pinned on purpose: `pce upgrade --check` reports whether the skill has a newer one, and `pce upgrade` refuses to downgrade or to overwrite local edits.
+
 ## What it looks like
 
 ```console
