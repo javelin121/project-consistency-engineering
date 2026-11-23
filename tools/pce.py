@@ -1462,7 +1462,15 @@ def apply_agents(root, targets, reset=False):
     begins = current.count(MARK_BEGIN)
     ends = current.count(MARK_END)
     if begins == 0:
-        emit("%s 已存在且没有 PCE 段，整份不动（要接管就自己加 %s）" % (AGENTS, MARK_BEGIN))
+        if reset:
+            # 在文件最前面加一个段，原有内容一个字节都不动
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(tpl.rstrip("\n") + "\n\n" + current)
+            emit("在 %s 顶部加了 PCE 段（原有 %d 行原样保留在后面）"
+                 % (AGENTS, len(current.splitlines())))
+            return
+        emit("%s 已存在且没有 PCE 段，整份不动；要 PCE 接管就在文件最前面加一段："
+             "跑 `pce init --reset-agents`（原有内容会原样保留在后面）" % AGENTS)
         return
     if begins > 1:
         emit("%s 里有 %d 个 PCE 段，不猜哪个是对的，不动它" % (AGENTS, begins))
