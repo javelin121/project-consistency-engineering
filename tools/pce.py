@@ -2184,8 +2184,12 @@ def cmd_archive(root, args):
     for raw in paths:
         rel = strip_dot(raw.replace(os.sep, "/"))
         if rel not in scan.file_set and rel not in scan.dir_set:
-            emit("%s 不存在" % rel)
-            return EXIT_USAGE
+            # 被 ignore 的路径不在 Scan 里；归档是显式动作，存在就照做
+            if os.path.exists(os.path.join(root, rel)):
+                emit("%s 在 ignore 里；归档是你点名要的，照做" % rel)
+            else:
+                emit("%s 不存在" % rel)
+                return EXIT_USAGE
         if rel == archive or rel.startswith(archive + "/"):
             emit("%s 已经在归档区里了，不能再归档一次" % rel)
             return EXIT_FAIL
