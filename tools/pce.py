@@ -18,7 +18,7 @@ import sys
 import tempfile
 import unicodedata
 
-VERSION = "0.6.7"
+VERSION = "0.6.8"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -788,6 +788,7 @@ def _resolve_link(scan, base_rel, target):
 
 
 FENCE_RE = re.compile(r"```.*?```", re.S)
+CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
 
 
 def rule_s5(scan, out):
@@ -797,7 +798,8 @@ def rule_s5(scan, out):
         text = FENCE_RE.sub("", text)
         md = rel.endswith((".md", ".markdown"))
         if md:
-            for m in LINK_RE.finditer(text):
+            # 行内代码里的方括号+小括号不是链接：`x["k"](1)` 这种
+            for m in LINK_RE.finditer(CODE_SPAN_RE.sub("", text)):
                 target = m.group(1)
                 if target.startswith(("http://", "https://", "mailto:", "#")):
                     continue
