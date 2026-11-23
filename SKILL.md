@@ -45,7 +45,7 @@ description: 一个 agent 友好型 skill：agent 在仓库里干活时不会弄
 | 第一次进一个仓库，先看什么 | `references/discovery.md` |
 | 新增、移动、改名、删除怎么判断 | `references/placement.md` |
 | 各层 `navigation.md` 的格式与更新规矩 | `references/navigation-protocol.md` |
-| 12 条检查分别查什么 | `references/validation.md` |
+| 13 条检查分别查什么 | `references/validation.md` |
 | 老仓库怎么迁移 | `references/migration.md` |
 
 命令与参数：`python tools/pce.py check`、`audit`、`map`、`new`、`archive`、`explain`、`init`、`scaffold`、`upgrade`、`upgrade-repo`、`hook install|uninstall`。

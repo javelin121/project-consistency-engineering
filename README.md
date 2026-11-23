@@ -111,7 +111,7 @@ The checks are not a style lint. Each one hangs off a principle:
 - **I5 Entry stays usable** — `AGENTS.md` stays short and free of logs; it is loaded on every turn.
 - **I3 Freshness** — each map shows when its folder last changed, computed from git, never hand-written.
 
-S1–S12 are the concrete checks (root files, map presence, two-way reconciliation, description consistency, dead links, archived paths, empty folders, overlapping zones, vague descriptions, archive registry, entry length, duplicate copies of the checker). Naming is advice, not a check. Details: [references/validation.md](references/validation.md).
+S1–S13 are the concrete checks (root files, map presence, two-way reconciliation, description consistency, dead links, archived paths, empty folders, overlapping zones, vague descriptions, archive registry, entry length, duplicate copies of the checker, metadata ignored by git). Naming is advice, not a check. Details: [references/validation.md](references/validation.md).
 
 ## FAQ
 

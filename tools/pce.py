@@ -18,7 +18,7 @@ import sys
 import tempfile
 import unicodedata
 
-VERSION = "0.6.5"
+VERSION = "0.6.6"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -429,6 +429,7 @@ def load_contract(root):
 class Scan(object):
     def __init__(self, root, contract):
         self.skipped = []
+        self._hist = None
         self.root = root
         self.contract = contract
         self.files = []
@@ -483,6 +484,20 @@ class Scan(object):
                 return True
         return False
 
+    def historical_paths(self):
+        """git 历史里出现过的所有路径（含已删/已改名）。没有 git 时返回空集。"""
+        if self._hist is not None:
+            return self._hist
+        out = set()
+        raw = git(self.root, "rev-list", "--objects", "--all")
+        if raw:
+            for line in raw.splitlines():
+                parts = line.split(" ", 1)
+                if len(parts) == 2 and parts[1].strip():
+                    out.add(parts[1].strip())
+        self._hist = out
+        return out
+
     def in_archive(self, relpath):
         a = self.contract.archive_dir()
         return bool(a) and (relpath == a or relpath.startswith(a + "/"))
@@ -507,7 +522,7 @@ class Scan(object):
 
 BASELINE_OF = {
     "S1": "I1", "S2": "I2", "S3": "I2", "S4": "I2", "S5": "I4", "S6": "I4",
-    "S7": "I2", "S8": "I1", "S9": "I2", "S10": "I4", "S11": "I5", "S12": "I4",
+    "S7": "I2", "S8": "I1", "S9": "I2", "S10": "I4", "S11": "I5", "S12": "I4", "S13": "I2",
 }
 
 
@@ -780,24 +795,30 @@ def rule_s5(scan, out):
         if _is_pce_script(text):
             continue
         text = FENCE_RE.sub("", text)
-        for m in LINK_RE.finditer(text):
-            target = m.group(1)
-            if target.startswith(("http://", "https://", "mailto:", "#")):
-                continue
-            resolved = _resolve_link(scan, rel, target)
-            if resolved is None:
-                continue
-            if resolved is False or resolved not in scan.file_set and resolved not in scan.dir_set:
-                arch = scan.contract.archive_dir()
-                if arch and isinstance(resolved, str) and (arch + "/" + strip_dot(resolved)) in scan.file_set:
+        md = rel.endswith((".md", ".markdown"))
+        if md:
+            for m in LINK_RE.finditer(text):
+                target = m.group(1)
+                if target.startswith(("http://", "https://", "mailto:", "#")):
                     continue
-                out.append(Finding("S5", rel, "error",
-                                   "链接指向的 %s 不存在" % target))
-        if rel.endswith(".md"):
+                resolved = _resolve_link(scan, rel, target)
+                if resolved is None:
+                    continue
+                if resolved is False or resolved not in scan.file_set and resolved not in scan.dir_set:
+                    arch = scan.contract.archive_dir()
+                    if arch and isinstance(resolved, str) and (arch + "/" + strip_dot(resolved)) in scan.file_set:
+                        continue
+                    out.append(Finding("S5", rel, "error",
+                                       "链接指向的 %s 不存在" % target))
+        if os.path.basename(rel) in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "composer.lock"):
             continue
+        tops = {d.split("/")[0] for d in scan.dir_set}
         for m in PATH_RE.finditer(text):
             cand = strip_dot(m.group(1))
             if "/" not in cand:
+                continue
+            head = cand.split("/")[0]
+            if head not in tops and not cand.startswith(("../", "./")):
                 continue
             if _path_exists(scan, rel, cand):
                 continue
@@ -807,6 +828,9 @@ def rule_s5(scan, out):
             if arch and (cand.startswith(arch + "/") or (arch + "/" + cand) in scan.file_set):
                 continue
             if scan.in_archive(rel):
+                continue
+            if md and cand not in scan.historical_paths():
+                # .md 里常引用别的仓库的路径；只报“以前在这个仓库里、现在没了”的
                 continue
             out.append(Finding("S5", rel, "warn",
                                "提到了 %s，但仓库里没有这个文件" % cand))
@@ -975,8 +999,30 @@ def rule_s12(scan, out):
                                "看起来是 pce.py 的副本；tools/ 下只该留一份，要留凭据用 pce archive"))
 
 
+def rule_s13(scan, out):
+    """PCE 自己的文件被 .gitignore 忽略：契约不会随仓库走，别人 clone 拿不到。"""
+    if not git(scan.root, "rev-parse", "--is-inside-work-tree"):
+        return
+    names = [CONTRACT, NAV, AGENTS]
+    arch = scan.contract.archive_dir()
+    if arch:
+        names.append(arch)
+    for name in names:
+        if not os.path.exists(os.path.join(scan.root, name)):
+            continue
+        try:
+            ignored = subprocess.run(["git", "check-ignore", "-q", name], cwd=scan.root,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     timeout=20).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ignored = False
+        if ignored:
+            out.append(Finding("S13", name, "warn",
+                               "%s 被 .gitignore 忽略了：契约不会随仓库走，别人 clone 拿不到它" % name))
+
+
 RULES = [rule_s1, rule_s2, rule_s3, rule_s4, rule_s5, rule_s6,
-         rule_s7, rule_s8, rule_s9, rule_s10, rule_s11, rule_s12]
+         rule_s7, rule_s8, rule_s9, rule_s10, rule_s11, rule_s12, rule_s13]
 
 
 def run_rules(scan):
@@ -2161,7 +2207,12 @@ def cmd_archive(root, args):
     refs = []
     for rel, dest, _ in moves:
         old = rel
-        pat = re.compile(r"(?<![\w/.-])" + re.escape(old) + r"(?![\w/.-])")
+        esc = re.escape(old)
+        if "/" in old:
+            pat = re.compile(r"(?<![\w/.-])" + esc + r"(?![\w/.-])")
+        else:
+            # 名字太短（如 old、tmp）时，只认带引号/反引号/括号的写法，避免把变量名当路径
+            pat = re.compile(r"[\"'`(]" + esc + r"[\"'`)]")
         for other, text in scan.texts.items():
             if other == rel:
                 continue
