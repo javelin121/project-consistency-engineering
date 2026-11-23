@@ -1644,7 +1644,11 @@ def cmd_init(root, args):
         else:
             emit("%s 已存在，保留原样（要改就跑 init 选 (b)，或自己改）" % CONTRACT)
 
+    had_agents = os.path.isfile(os.path.join(root, AGENTS))
     apply_agents(root, targets, reset="--reset-agents" in args)
+    if not had_agents:
+        emit("AGENTS.md 是新建的。如果这个仓库本来有自己的手册（只在本机、被 .gitignore，或只在 git 历史里），"
+             "先把原文贴到 <!-- pce:end --> 后面；PCE 只改标记段内的内容，段外不碰。")
     if not os.path.isfile(os.path.join(root, "README.md")):
         targets.append(("README.md",
                         "# %s\n\n一句话说明这个项目是做什么的。\n\n## 怎么跑\n\n（写清楚跑起来的命令）\n"
