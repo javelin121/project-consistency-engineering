@@ -18,7 +18,7 @@ import sys
 import tempfile
 import unicodedata
 
-VERSION = "0.6.6"
+VERSION = "0.6.7"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -2726,6 +2726,38 @@ USAGE = """pce %s — 项目一致性工程
 """ % VERSION
 
 
+VALUE_FLAGS = {"--paths", "--what", "--reason", "--from", "--depth"}
+ALLOWED_FLAGS = {
+    "init": {"--yes", "--reset-agents", "--vendor"},
+    "audit": {"--json"},
+    "check": {"--paths", "--strict", "--json"},
+    "map": {"--apply", "--yes"},
+    "new": {"--dir", "--what", "--apply", "--yes"},
+    "archive": {"--reason", "--apply", "--yes"},
+    "explain": set(),
+    "upgrade": {"--check", "--from", "--apply"},
+    "upgrade-repo": {"--apply", "--yes"},
+    "hook": set(),
+    "scaffold": {"--from", "--depth", "--apply", "--yes"},
+}
+
+
+def _bad_flag(cmd, rest):
+    """返回第一个不认识的参数；只有 hook 允许位置参数（install / uninstall）。"""
+    allowed = ALLOWED_FLAGS.get(cmd, set())
+    i = 0
+    while i < len(rest):
+        a = rest[i]
+        if a.startswith("-"):
+            if a not in allowed:
+                return a
+            if a in VALUE_FLAGS:
+                i += 2
+                continue
+        i += 1
+    return None
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help", "help"):
         emit(USAGE)
@@ -2734,6 +2766,14 @@ def main(argv):
         emit(VERSION)
         return EXIT_OK
     cmd, rest = argv[0], argv[1:]
+    if any(a in ("-h", "--help") for a in rest):
+        emit(USAGE)
+        return EXIT_OK
+    bad = _bad_flag(cmd, rest)
+    if bad:
+        emit("不认识的参数：%s\n" % bad)
+        emit(USAGE)
+        return EXIT_USAGE
     if cmd == "init":
         cwd = os.path.abspath(os.getcwd())
         found = find_root()
