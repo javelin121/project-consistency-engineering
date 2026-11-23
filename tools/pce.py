@@ -18,7 +18,7 @@ import sys
 import tempfile
 import unicodedata
 
-VERSION = "0.6.4"
+VERSION = "0.6.5"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
