@@ -51,7 +51,7 @@ python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py init
 python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py check
 ```
 
-`init` asks before it writes: what the general zone is called, what each zone is for, whether to claim an archive folder, and whether each stray root file belongs in the allow-list. It does **not** copy the checker into your repo — a copy drifts from the installed version. Pass `--vendor` when you need one inside the repo (CI, machines without the skill); `upgrade` maintains that copy.
+`init` asks before it writes: what the general zone is called, what each zone is for, whether to claim an archive folder, and whether each stray root file belongs in the allow-list. Name your own zones instead with `--zone name=what` (repeatable); when you do, the default `src/` is not created. Anything that lands in the allow-list is printed, so a stray file never becomes legal by silence. It does **not** copy the checker into your repo — a copy drifts from the installed version. Pass `--vendor` when you need one inside the repo (CI, machines without the skill); `upgrade` maintains that copy.
 
 Old repository? Start read-only:
 
@@ -87,7 +87,7 @@ Output is currently Chinese only; the rules and the data model are language-neut
 
 | Command | What it does | Writes files? |
 |---|---|---|
-| `init` | Create the contract, entry point, maps; `--vendor` also installs `tools/pce.py` | yes, item by item |
+| `init` | Create the contract, entry point, maps; `--zone name=what` names zones; `--vendor` also installs `tools/pce.py` | yes, item by item |
 | `audit` | Read-only survey: size, mess, what is missing | no |
 | `check` | Run the 12 rules; print findings | no |
 | `map` | Reconcile each map with the disk | yes, rows only |

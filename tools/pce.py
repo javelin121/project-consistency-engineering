@@ -18,7 +18,7 @@ import sys
 import tempfile
 import unicodedata
 
-VERSION = "0.6.8"
+VERSION = "0.7.0"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -1573,6 +1573,24 @@ def _register_preexisting_archive(root, archive):
     emit("归档区里原有 %d 个文件，已登记到 %s" % (len(rows), archive + "/" + ARCHIVE_LOG))
 
 
+def _parse_zone_args(rest):
+    """从参数里取出 --zone 的值（可重复，支持 --zone NAME=WHAT 与 --zone=NAME=WHAT）。"""
+    out = []
+    i = 0
+    while i < len(rest):
+        a = rest[i]
+        if a == "--zone":
+            if i + 1 < len(rest):
+                out.append(rest[i + 1])
+                i += 2
+                continue
+            break
+        if a.startswith("--zone="):
+            out.append(a.split("=", 1)[1])
+        i += 1
+    return out
+
+
 def cmd_init(root, args):
     targets = []
     force = set()
@@ -1581,6 +1599,21 @@ def cmd_init(root, args):
     vendor = "--vendor" in args
     archive_path = ""
     extras = []
+    more_zones = []
+    zone_args = _parse_zone_args(args)
+    given_zones = []
+    for item in zone_args:
+        if "=" not in item:
+            emit("--zone 要写成 名字=负责什么，例如 --zone assets=原始素材")
+            return EXIT_USAGE
+        zname, zwhat = [x.strip() for x in item.split("=", 1)]
+        if not ZONE_NAME_RE.match(zname):
+            emit("分区名 %r 不合法：只能字母、数字、点、横线、下划线（检查器不认中文分区名）" % zname)
+            return EXIT_USAGE
+        if not zwhat:
+            emit("分区 %s 没写负责什么" % zname)
+            return EXIT_USAGE
+        given_zones.append((zname, zwhat))
     if not os.path.isfile(contract_path):
         try:
             for name in sorted(os.listdir(root)):
@@ -1596,9 +1629,16 @@ def cmd_init(root, args):
                 found_old = cand
                 break
         want_archive = True
-        if interactive():
+        if given_zones:
+            zone_name, zone_what = given_zones[0]
+            more_zones = list(given_zones[1:])
+            emit("用 --zone 指定的分区，不建默认的 src/")
+        elif interactive():
             zone_name = ask("通用区叫什么名字？", "src") or "src"
             zone_what = ask("%s/ 负责什么？" % zone_name, "程序源码") or "程序源码"
+        else:
+            zone_name, zone_what = "src", "程序源码"
+        if interactive():
             if "--vendor" not in args:
                 vendor = ask("要把校验器复制一份进仓库吗（给 CI / 没装 skill 的机器用）？(y/n)",
                              "n").lower().startswith("y")
@@ -1608,12 +1648,31 @@ def cmd_init(root, args):
                 want_archive = ask("发现 %s/，它是归档区吗？(y/n)" % found_old, "y").lower().startswith("y")
             else:
                 want_archive = ask("建归档区 archive/ 吗？(y/n)", "y").lower().startswith("y")
-            kept = [n for n in extras
-                    if ask("根目录的 %s 要放进白名单吗？(y/n)" % n, "y").lower().startswith("y")]
-            extras = kept
+            if extras:
+                emit("根目录已经有这些文件：%s" % "、".join(extras))
+                kept = [n for n in extras
+                        if ask("  把 %s 放进白名单（承认它该在根）吗？(y/n)" % n, "y").lower().startswith("y")]
+                extras = kept
+            while True:
+                more = ask("还要加一个分区吗？名字=负责什么（回车=不加）", "").strip()
+                if not more:
+                    break
+                if "=" not in more:
+                    emit("  写成 名字=负责什么，例如 notes=读书笔记")
+                    continue
+                mname, mwhat = [x.strip() for x in more.split("=", 1)]
+                if not ZONE_NAME_RE.match(mname) or not mwhat:
+                    emit("  分区名只能字母、数字、点、横线、下划线，而且要写负责什么")
+                    continue
+                more_zones.append((mname, mwhat))
         archive_path = (found_old if found_old and want_archive else ("archive" if want_archive else ""))
-        zones = ([("tools", tools_what)] if vendor else []) + [(zone_name, zone_what)]
+        zones = ([("tools", tools_what)] if vendor else []) + [(zone_name, zone_what)] + more_zones
         targets.append((CONTRACT, _contract_body(zones, extras, archive_path)))
+        if extras:
+            emit("根目录这些文件写进了白名单（等于承认它们该在根）：%s" % "、".join(extras))
+            emit("  只是临时放的，删掉 structure.yaml 里 root.allow 对应的那一行。")
+        if len(extras) >= 5 or os.path.isdir(os.path.join(root, ".git")):
+            emit("看起来是个已有项目：分区怎么分，建议先跑 `pce audit` 看现状，再由 agent 出计划、你确认。")
     else:
         try:
             old = load_contract(root)
@@ -1683,7 +1742,7 @@ def cmd_init(root, args):
             with open(sha_path, "w", encoding="utf-8") as f:
                 f.write(sha256_file(dst) + "\n")
     if not os.path.isfile(os.path.join(root, NAV)):
-        rows = ([("tools", tools_what)] if vendor else []) + [(zone_name, zone_what)]
+        rows = ([("tools", tools_what)] if vendor else []) + [(zone_name, zone_what)] + more_zones
         if archive_path:
             rows.append((archive_path, "不再使用、但想留个凭据的文件"))
         targets.append((NAV, NAV_TPL % (MAP_BEGIN,
@@ -2459,6 +2518,7 @@ PLAN_EXAMPLE = """zones:
 """
 
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+ZONE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def _plan_walk(name, node, base, depth, limit, out, errors):
@@ -2730,9 +2790,10 @@ USAGE = """pce %s — 项目一致性工程
 
 用法：pce <命令> [参数]
 
-  init                  建骨架（structure.yaml / AGENTS.md / navigation.md / tools/pce.py）
+  init [--zone 名字=负责什么]… [--vendor] [--reset-agents] [--yes]
+                        建骨架；给了 --zone 就不建默认的 src
   audit [--json]        只读体检，给现状不给方案
-  check [--paths …] [--strict] [--json]   跑 12 条规则
+  check [--paths …] [--strict] [--json]   跑 13 条规则
   map [--apply]         让每层 navigation.md 与磁盘对齐
   new <路径…> [--dir] [--apply]           新建文件或目录
   archive <路径…> --reason "…" [--apply]  归档
@@ -2744,9 +2805,9 @@ USAGE = """pce %s — 项目一致性工程
 """ % VERSION
 
 
-VALUE_FLAGS = {"--paths", "--what", "--reason", "--from", "--depth"}
+VALUE_FLAGS = {"--paths", "--what", "--reason", "--from", "--depth", "--zone"}
 ALLOWED_FLAGS = {
-    "init": {"--yes", "--reset-agents", "--vendor"},
+    "init": {"--yes", "--reset-agents", "--vendor", "--zone"},
     "audit": {"--json"},
     "check": {"--paths", "--strict", "--json"},
     "map": {"--apply", "--yes"},

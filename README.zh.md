@@ -49,7 +49,7 @@ python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py init
 python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py check
 ```
 
-`init` 每一步都先问：通用分区叫什么、每个分区负责什么、要不要认领归档目录、根上那些散落文件要不要进白名单。它**不**把校验器复制进你的仓库——复制一份迟早会和装的那份分叉。需要仓库里有一份（CI、没装 skill 的机器）就加 `--vendor`，那份副本由 `upgrade` 管。
+`init` 每一步都先问：通用分区叫什么、每个分区负责什么、要不要认领归档目录、根上那些散落文件要不要进白名单。想自己点名分区就加 `--zone 名字=负责什么`（可重复），给了就不再建默认的 `src/`；进了白名单的文件都会被打印出来，不会悄悄变成合法。它**不**把校验器复制进你的仓库——复制一份迟早会和装的那份分叉。需要仓库里有一份（CI、没装 skill 的机器）就加 `--vendor`，那份副本由 `upgrade` 管。
 
 老仓库先只读体检，不动任何文件：
 
@@ -81,7 +81,7 @@ notes.txt  I1  error  根目录下多了个文件 notes.txt；要么挪进某个
 
 | 命令 | 做什么 | 会改文件吗 |
 |---|---|---|
-| `init` | 建契约、入口、导航；`--vendor` 时连 `tools/pce.py` 一起装 | 会，逐项确认 |
+| `init` | 建契约、入口、导航；`--zone 名字=负责什么` 自己点名分区；`--vendor` 时连 `tools/pce.py` 一起装 | 会，逐项确认 |
 | `audit` | 只读体检：多大、多乱、缺什么 | 不会 |
 | `check` | 跑 13 条规则，打印结果 | 不会 |
 | `map` | 让导航表和磁盘对齐 | 会，只增删行 |

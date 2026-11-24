@@ -48,6 +48,6 @@ description: 一个 agent 友好型 skill：agent 在仓库里干活时不会弄
 | 13 条检查分别查什么 | `references/validation.md` |
 | 老仓库怎么迁移 | `references/migration.md` |
 
-命令与参数：`python tools/pce.py check`、`audit`、`map`、`new`、`archive`、`explain`、`init`、`scaffold`、`upgrade`、`upgrade-repo`、`hook install|uninstall`。
+命令与参数：`python tools/pce.py check`、`audit`、`map`、`new`、`archive`、`explain`、`init`（`--zone 名字=负责什么` 可点名分区）、`scaffold`、`upgrade`、`upgrade-repo`、`hook install|uninstall`。
 
 下文的 `pce` 都是在仓库根执行的那条命令：仓库里有 `tools/pce.py` 就写 `python3 tools/pce.py`，没有就写 `python3 ~/.agents/skills/project-consistency-engineering/tools/pce.py`。
